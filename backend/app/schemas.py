@@ -169,7 +169,7 @@ class DashboardStats(BaseModel):
     average_test_score: float
     overall_progress: float
     study_streak: int
-    cards_mastered: int
+    tests_rocked: int
     active_study_plan: Optional[StudyPlanResponse]
     today_tasks: List[TaskResponse]
     upcoming_exams: List[StudyPlanResponse]

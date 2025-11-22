@@ -163,6 +163,10 @@ async def complete_task(
     plan.tasks_completed += 1
     if plan.tasks_total > 0:
         plan.progress_percentage = (plan.tasks_completed / plan.tasks_total) * 100
+        
+        # Mark plan as completed if all tasks are done
+        if plan.tasks_completed >= plan.tasks_total and plan.status != StudyPlanStatus.COMPLETED:
+            plan.status = StudyPlanStatus.COMPLETED
     
     db.commit()
     return {"message": "Task completed"}

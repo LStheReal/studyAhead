@@ -188,11 +188,11 @@ const Dashboard = () => {
         <div className="card">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
-              <BookOpen size={20} className="text-purple-600 dark:text-purple-400" />
+              <TrendingUp size={20} className="text-purple-600 dark:text-purple-400" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{stats.cards_mastered}</div>
-              <div className="text-sm text-slate-600 dark:text-slate-400">Cards Mastered</div>
+              <div className="text-2xl font-bold">{stats.tests_rocked}</div>
+              <div className="text-sm text-slate-600 dark:text-slate-400">Tests Rocked</div>
             </div>
           </div>
         </div>

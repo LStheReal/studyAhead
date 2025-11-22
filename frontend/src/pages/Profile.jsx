@@ -79,9 +79,9 @@ const Profile = () => {
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <Target size={20} className="text-green-500" />
-                <span className="text-sm text-slate-600 dark:text-slate-400">Cards Mastered</span>
+                <span className="text-sm text-slate-600 dark:text-slate-400">Tests Rocked</span>
               </div>
-              <div className="text-2xl font-bold">{stats.cards_mastered}</div>
+              <div className="text-2xl font-bold">{stats.tests_rocked}</div>
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">

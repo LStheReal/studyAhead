@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional
 from app.database import get_db
 from app.auth import get_current_user
-from app.models import User, StudyPlan, Task, TestResult, Flashcard, StudyPlanStatus
+from app.models import User, StudyPlan, Task, TestResult, StudyPlanStatus
 from app.schemas import DashboardStats, StudyPlanResponse, TaskResponse
 
 router = APIRouter()
@@ -41,10 +41,23 @@ async def get_dashboard_stats(
     streak_data = await get_study_streak(current_user, db)
     study_streak = streak_data.get("streak", 0)
     
-    # Cards mastered (mastery level > 80)
-    cards_mastered = db.query(Flashcard).join(StudyPlan).filter(
+    # Tests rocked (completed study plans - all tasks done)
+    # First, mark any plans as completed if all tasks are done
+    all_plans = db.query(StudyPlan).filter(
+        StudyPlan.user_id == current_user.id
+    ).all()
+    
+    for plan in all_plans:
+        if plan.tasks_total > 0 and plan.tasks_completed >= plan.tasks_total:
+            if plan.status != StudyPlanStatus.COMPLETED:
+                plan.status = StudyPlanStatus.COMPLETED
+    
+    db.commit()
+    
+    # Count completed study plans
+    tests_rocked = db.query(StudyPlan).filter(
         StudyPlan.user_id == current_user.id,
-        Flashcard.mastery_level >= 80
+        StudyPlan.status == StudyPlanStatus.COMPLETED
     ).count()
     
     # Active study plan (most recent active plan)
@@ -82,7 +95,7 @@ async def get_dashboard_stats(
         average_test_score=average_test_score,
         overall_progress=overall_progress,
         study_streak=study_streak,
-        cards_mastered=cards_mastered,
+        tests_rocked=tests_rocked,
         active_study_plan=active_plan_response,
         today_tasks=today_tasks_response,
         upcoming_exams=upcoming_exams_response
