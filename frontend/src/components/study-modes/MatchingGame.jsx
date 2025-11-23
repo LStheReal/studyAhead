@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
-import { ArrowLeft, RotateCcw, Trophy, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Timer, RotateCcw, Trophy, Maximize2, Minimize2 } from 'lucide-react'
 
 const MatchingGame = () => {
   const { planId } = useParams()
@@ -9,56 +9,43 @@ const MatchingGame = () => {
   const taskId = searchParams.get('taskId')
   const testMode = searchParams.get('testMode') === 'true'
   const navigate = useNavigate()
-  
-  const [flashcards, setFlashcards] = useState([])
+
+  const [cards, setCards] = useState([]) // [{ id, text, type: 'term'|'def', pairId, state: 'default'|'selected'|'matched'|'wrong' }]
+  const [selectedCards, setSelectedCards] = useState([])
+  const [matchedPairs, setMatchedPairs] = useState([])
   const [loading, setLoading] = useState(true)
-  
-  // Round state
-  const [currentRound, setCurrentRound] = useState(0)
-  const [roundFlashcards, setRoundFlashcards] = useState([]) // Up to 5 flashcards per round
-  const [matchItems, setMatchItems] = useState([]) // { id, text, type: 'left'|'right', flashcardId, isMatched, isSelected, showError, matchType: 'none'|'green'|'yellow' }
-  
-  // Progress tracking
-  const [progressMap, setProgressMap] = useState({}) // flashcardId -> { correctOnFirstTry, hasBeenWrongInCurrentRound, needsRetry }
-  const [selectedLeft, setSelectedLeft] = useState(null)
-  const [selectedRight, setSelectedRight] = useState(null)
-  const [matchedCount, setMatchedCount] = useState(0)
   const [completed, setCompleted] = useState(false)
-  
-  // Test results
-  const [testResults, setTestResults] = useState([])
+
+  // Timer state
+  const [startTime, setStartTime] = useState(null)
+  const [elapsedTime, setElapsedTime] = useState(0)
+  const [timerRunning, setTimerRunning] = useState(false)
+  const timerRef = useRef(null)
+
+  // Game stats
+  const [attempts, setAttempts] = useState(0)
+  const [bestTime, setBestTime] = useState(null)
 
   useEffect(() => {
     fetchData()
+    return () => stopTimer()
   }, [planId])
+
+  useEffect(() => {
+    if (timerRunning) {
+      timerRef.current = setInterval(() => {
+        setElapsedTime(Date.now() - startTime)
+      }, 100)
+    } else {
+      clearInterval(timerRef.current)
+    }
+    return () => clearInterval(timerRef.current)
+  }, [timerRunning, startTime])
 
   const fetchData = async () => {
     try {
       const response = await api.get(`/flashcards/study-plan/${planId}`)
-      const cards = response.data
-      
-      if (cards.length < 2) {
-        setLoading(false)
-        return
-      }
-      
-      // Shuffle flashcards
-      const shuffled = [...cards].sort(() => Math.random() - 0.5)
-      setFlashcards(shuffled)
-      
-      // Initialize progress map
-      const progress = {}
-      cards.forEach(card => {
-        progress[card.id] = { 
-          correctOnFirstTry: false, 
-          hasBeenWrongInCurrentRound: false, 
-          needsRetry: false 
-        }
-      })
-      setProgressMap(progress)
-      
-      // Start first round
-      startRound(shuffled, progress)
+      initializeGame(response.data)
     } catch (error) {
       console.error('Failed to fetch flashcards:', error)
     } finally {
@@ -66,254 +53,128 @@ const MatchingGame = () => {
     }
   }
 
-  const startRound = (cards, progress) => {
-    // Select up to 5 flashcards for this round
-    let availableCards = cards
-    
-    if (!testMode && currentRound > 0) {
-      // In training mode, filter for cards that need retry
-      availableCards = cards.filter(card => {
-        const prog = progress[card.id] || progressMap[card.id]
-        return prog?.needsRetry || !prog?.correctOnFirstTry
+  const initializeGame = (flashcards) => {
+    // Take up to 8 pairs for the grid (16 cards total)
+    const gamePairs = flashcards.slice(0, 8)
+
+    const gameCards = []
+    gamePairs.forEach(pair => {
+      gameCards.push({
+        id: `term-${pair.id}`,
+        text: pair.front_text,
+        type: 'term',
+        pairId: pair.id,
+        state: 'default'
       })
-    }
-    
-    // Take up to 5 flashcards
-    const selected = availableCards.slice(0, Math.min(5, availableCards.length))
-    
-    if (selected.length === 0) {
-      // All flashcards mastered
-      setCompleted(true)
-      return
-    }
-    
-    setRoundFlashcards(selected)
-    
-    // Create match items
-    const items = []
-    selected.forEach(card => {
-      // Left item (front)
-      items.push({
-        id: `left-${card.id}`,
-        text: card.front_text,
-        type: 'left',
-        flashcardId: card.id,
-        isMatched: false,
-        isSelected: false,
-        showError: false,
-        matchType: 'none'
-      })
-      
-      // Right item (back)
-      items.push({
-        id: `right-${card.id}`,
-        text: card.back_text,
-        type: 'right',
-        flashcardId: card.id,
-        isMatched: false,
-        isSelected: false,
-        showError: false,
-        matchType: 'none'
+      gameCards.push({
+        id: `def-${pair.id}`,
+        text: pair.back_text,
+        type: 'def',
+        pairId: pair.id,
+        state: 'default'
       })
     })
-    
-    // Shuffle left and right independently
-    const leftItems = items.filter(i => i.type === 'left').sort(() => Math.random() - 0.5)
-    const rightItems = items.filter(i => i.type === 'right').sort(() => Math.random() - 0.5)
-    
-    setMatchItems([...leftItems, ...rightItems])
-    setMatchedCount(0)
-    setSelectedLeft(null)
-    setSelectedRight(null)
+
+    // Shuffle cards
+    const shuffled = gameCards.sort(() => Math.random() - 0.5)
+
+    setCards(shuffled)
+    setMatchedPairs([])
+    setSelectedCards([])
+    setAttempts(0)
+    setCompleted(false)
+    setElapsedTime(0)
+    setStartTime(Date.now())
+    setTimerRunning(true)
   }
 
-  const handleItemClick = (item) => {
-    if (item.isMatched) return // Can't select matched items
-    
-    if (item.type === 'left') {
-      if (selectedLeft?.id === item.id) {
-        // Deselect
-        setSelectedLeft(null)
-        updateItemState(item.id, { isSelected: false })
-      } else {
-        // Select new left item
-        if (selectedLeft) {
-          updateItemState(selectedLeft.id, { isSelected: false })
-        }
-        setSelectedLeft(item)
-        updateItemState(item.id, { isSelected: true })
-        
-        // If right is already selected, check match
-        if (selectedRight) {
-          checkMatch(item, selectedRight)
-        }
-      }
-    } else {
-      // Right item
-      if (selectedRight?.id === item.id) {
-        setSelectedRight(null)
-        updateItemState(item.id, { isSelected: false })
-      } else {
-        if (selectedRight) {
-          updateItemState(selectedRight.id, { isSelected: false })
-        }
-        setSelectedRight(item)
-        updateItemState(item.id, { isSelected: true })
-        
-        // If left is already selected, check match
-        if (selectedLeft) {
-          checkMatch(selectedLeft, item)
-        }
-      }
-    }
-  }
+  const handleCardClick = (card) => {
+    if (
+      completed ||
+      card.state === 'matched' ||
+      selectedCards.find(c => c.id === card.id) ||
+      selectedCards.length >= 2
+    ) return
 
-  const checkMatch = (leftItem, rightItem) => {
-    const isCorrect = leftItem.flashcardId === rightItem.flashcardId
-    
-    if (isCorrect) {
-      // Correct match!
-      const flashcardId = leftItem.flashcardId
-      const progress = progressMap[flashcardId] || { 
-        correctOnFirstTry: false, 
-        hasBeenWrongInCurrentRound: false, 
-        needsRetry: false 
-      }
-      
-      // Determine match type
-      let matchType = 'green'
-      if (progress.hasBeenWrongInCurrentRound) {
-        matchType = 'yellow'
-        progress.needsRetry = true
-      } else {
-        progress.correctOnFirstTry = true
-        progress.needsRetry = false
-      }
-      
-      // Update progress
-      setProgressMap(prev => ({
-        ...prev,
-        [flashcardId]: progress
-      }))
-      
-      // Mark items as matched
-      updateItemState(leftItem.id, { 
-        isMatched: true, 
-        isSelected: false, 
-        matchType 
-      })
-      updateItemState(rightItem.id, { 
-        isMatched: true, 
-        isSelected: false, 
-        matchType 
-      })
-      
-      setMatchedCount(prev => prev + 1)
-      setSelectedLeft(null)
-      setSelectedRight(null)
-      
-      // Track test results
-      if (testMode) {
-        setTestResults(prev => [...prev, { 
-          flashcardId, 
-          correct: !progress.hasBeenWrongInCurrentRound 
-        }])
-      }
-      
-      // Check if round is complete
-      if (matchedCount + 1 >= roundFlashcards.length) {
-        setTimeout(() => {
-          handleRoundComplete()
-        }, 500)
-      }
-    } else {
-      // Wrong match
-      const leftProg = progressMap[leftItem.flashcardId]
-      const rightProg = progressMap[rightItem.flashcardId]
-      
-      if (leftProg) {
-        leftProg.hasBeenWrongInCurrentRound = true
-        leftProg.needsRetry = true
-      }
-      if (rightProg) {
-        rightProg.hasBeenWrongInCurrentRound = true
-        rightProg.needsRetry = true
-      }
-      
-      setProgressMap(prev => ({
-        ...prev,
-        [leftItem.flashcardId]: leftProg || { correctOnFirstTry: false, hasBeenWrongInCurrentRound: true, needsRetry: true },
-        [rightItem.flashcardId]: rightProg || { correctOnFirstTry: false, hasBeenWrongInCurrentRound: true, needsRetry: true }
-      }))
-      
-      // Show error flash
-      updateItemState(leftItem.id, { showError: true, isSelected: false })
-      updateItemState(rightItem.id, { showError: true, isSelected: false })
-      
-      setTimeout(() => {
-        updateItemState(leftItem.id, { showError: false })
-        updateItemState(rightItem.id, { showError: false })
-      }, 500)
-      
-      setSelectedLeft(null)
-      setSelectedRight(null)
-    }
-  }
+    const newSelected = [...selectedCards, card]
+    setSelectedCards(newSelected)
 
-  const updateItemState = (itemId, updates) => {
-    setMatchItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, ...updates } : item
+    // Update card state visually
+    setCards(prev => prev.map(c =>
+      c.id === card.id ? { ...c, state: 'selected' } : c
     ))
-  }
 
-  const handleRoundComplete = () => {
-    // Check overall completion
-    const allMastered = Object.values(progressMap).every(p => p.correctOnFirstTry)
-    
-    if (allMastered || testMode) {
-      setCompleted(true)
-      return
+    if (newSelected.length === 2) {
+      setAttempts(prev => prev + 1)
+      checkMatch(newSelected)
     }
-    
-    // Start next round
-    // Reset wrong flags for next round
-    const resetProgress = { ...progressMap }
-    Object.keys(resetProgress).forEach(id => {
-      if (!resetProgress[id].correctOnFirstTry) {
-        resetProgress[id].hasBeenWrongInCurrentRound = false
-      }
-    })
-    setProgressMap(resetProgress)
-    setCurrentRound(prev => prev + 1)
-    startRound(flashcards, resetProgress)
   }
 
-  const handleReset = () => {
-    setSelectedLeft(null)
-    setSelectedRight(null)
-    // Reset selection state only, matched pairs stay matched
-    setMatchItems(prev => prev.map(item => ({
-      ...item,
-      isSelected: false,
-      showError: false
-    })))
+  const checkMatch = (selection) => {
+    const [card1, card2] = selection
+    const isMatch = card1.pairId === card2.pairId
+
+    if (isMatch) {
+      // Handle correct match
+      setTimeout(() => {
+        setCards(prev => prev.map(c =>
+          c.id === card1.id || c.id === card2.id
+            ? { ...c, state: 'matched' }
+            : c
+        ))
+        setMatchedPairs(prev => [...prev, card1.pairId])
+        setSelectedCards([])
+
+        // Check win condition
+        if (matchedPairs.length + 1 === cards.length / 2) {
+          handleGameComplete()
+        }
+      }, 300)
+    } else {
+      // Handle mismatch
+      // Show error state briefly
+      setCards(prev => prev.map(c =>
+        c.id === card1.id || c.id === card2.id
+          ? { ...c, state: 'wrong' }
+          : c
+      ))
+
+      setTimeout(() => {
+        setCards(prev => prev.map(c =>
+          c.id === card1.id || c.id === card2.id
+            ? { ...c, state: 'default' }
+            : c
+        ))
+        setSelectedCards([])
+      }, 1000)
+    }
+  }
+
+  const handleGameComplete = () => {
+    stopTimer()
+    setCompleted(true)
+
+    // Save score if needed
+    if (testMode) {
+      // In test mode, we might want to track time taken
+    }
+  }
+
+  const stopTimer = () => {
+    setTimerRunning(false)
+    clearInterval(timerRef.current)
+  }
+
+  const formatTime = (ms) => {
+    const seconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
   }
 
   const handleRestart = () => {
-    const progress = {}
-    flashcards.forEach(card => {
-      progress[card.id] = { 
-        correctOnFirstTry: false, 
-        hasBeenWrongInCurrentRound: false, 
-        needsRetry: false 
-      }
-    })
-    setProgressMap(progress)
-    setCurrentRound(0)
-    setMatchedCount(0)
-    setCompleted(false)
-    setTestResults([])
-    startRound(flashcards, progress)
+    setLoading(true)
+    fetchData()
   }
 
   if (loading) {
@@ -324,78 +185,24 @@ const MatchingGame = () => {
     )
   }
 
-  if (flashcards.length < 2) {
-    return (
-      <div className="p-4">
-        <div className="card text-center py-12">
-          <p className="text-slate-600 dark:text-slate-400">Need at least 2 pairs to play</p>
-          <button
-            onClick={() => navigate(`/plans/${planId}`)}
-            className="mt-4 btn-primary"
-          >
-            Back to Plan
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   if (completed) {
-    const totalPairs = flashcards.length
-    const greenMatches = Object.values(progressMap).filter(p => p.correctOnFirstTry).length
-    const yellowMatches = totalPairs - greenMatches
-    const firstTrySuccess = (greenMatches / totalPairs) * 100
-    
-    if (testMode) {
-      return (
-        <div className="p-4">
-          <div className="card text-center py-12">
-            <Trophy size={64} className="mx-auto mb-4 text-yellow-500" />
-            <h2 className="text-2xl font-bold mb-2">Matching Complete!</h2>
-            <p className="text-slate-600 dark:text-slate-400 mb-4">
-              Matched {greenMatches} / {totalPairs} pairs correctly
-            </p>
-            <button
-              onClick={() => {
-                if (window.testFlowCallback) {
-                  window.testFlowCallback({ mode: 'match', results: testResults })
-                }
-              }}
-              className="btn-primary"
-            >
-              Continue to Next Phase
-            </button>
-          </div>
-        </div>
-      )
-    }
-    
     return (
       <div className="p-4">
         <div className="card text-center py-12">
           <Trophy size={64} className="mx-auto mb-4 text-yellow-500" />
-          <h2 className="text-2xl font-bold mb-2">All Pairs Matched!</h2>
-          
+          <h2 className="text-2xl font-bold mb-2">Great Job!</h2>
+          <div className="text-4xl font-bold text-slate-800 dark:text-white mb-6">
+            {formatTime(elapsedTime)}
+          </div>
+
           <div className="mt-6 space-y-2 text-left max-w-md mx-auto">
             <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Total pairs matched:</span>
-              <span className="font-medium">{totalPairs}</span>
+              <span className="text-slate-600 dark:text-slate-400">Pairs matched:</span>
+              <span className="font-medium">{cards.length / 2}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">First-attempt success rate:</span>
-              <span className="font-medium">{firstTrySuccess.toFixed(1)}%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Perfect matches (green):</span>
-              <span className="font-medium text-green-600">{greenMatches}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Matches needing retry (yellow):</span>
-              <span className="font-medium text-yellow-600">{yellowMatches}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Total rounds needed:</span>
-              <span className="font-medium">{currentRound + 1}</span>
+              <span className="text-slate-600 dark:text-slate-400">Attempts needed:</span>
+              <span className="font-medium">{attempts}</span>
             </div>
           </div>
 
@@ -407,127 +214,84 @@ const MatchingGame = () => {
               <RotateCcw size={20} className="inline mr-2" />
               Play Again
             </button>
-            <button
-              onClick={() => navigate(`/plans/${planId}`)}
-              className="btn-primary"
-            >
-              Back to Overview
-            </button>
+            {testMode ? (
+              <button
+                onClick={() => {
+                  if (window.testFlowCallback) {
+                    window.testFlowCallback({ mode: 'match', results: { time: elapsedTime, attempts } })
+                  }
+                }}
+                className="btn-primary"
+              >
+                Continue to Next Phase
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate(`/plans/${planId}`)}
+                className="btn-primary"
+              >
+                Back to Overview
+              </button>
+            )}
           </div>
         </div>
       </div>
     )
   }
 
-  const leftItems = matchItems.filter(i => i.type === 'left')
-  const rightItems = matchItems.filter(i => i.type === 'right')
-
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-slate-700">
-        <div className="flex items-center justify-between mb-3">
+      <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+        <div className="flex items-center justify-between">
           <button
             onClick={() => navigate(`/plans/${planId}`)}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
-          
-          <div className="text-sm">
-            {!testMode && <span className="font-medium">Round {currentRound + 1}</span>}
-            <span className="ml-2 text-slate-500">
-              Matched {matchedCount} / {roundFlashcards.length} pairs
-            </span>
+
+          <div className="flex items-center gap-2 font-mono text-xl font-bold text-slate-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-700 px-4 py-2 rounded-lg">
+            <Timer size={20} className="text-blue-500" />
+            {formatTime(elapsedTime)}
           </div>
-          
+
           <button
-            onClick={handleReset}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg text-sm"
+            onClick={handleRestart}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+            title="Restart"
           >
-            Reset
+            <RotateCcw size={20} />
           </button>
         </div>
       </div>
 
-      {/* Matching Area */}
+      {/* Game Grid */}
       <div className="flex-1 p-4 overflow-y-auto">
-        <div className="max-w-4xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Left Column */}
-            <div className="space-y-3">
-              <h3 className="font-medium text-sm text-slate-600 dark:text-slate-400 mb-2">
-                Questions
-              </h3>
-              {leftItems.map((item) => {
-                let itemClass = "card p-4 text-center cursor-pointer transition-all border-2"
-                
-                if (item.isMatched) {
-                  if (item.matchType === 'green') {
-                    itemClass += " bg-green-100 dark:bg-green-900 border-green-500"
-                  } else {
-                    itemClass += " bg-yellow-100 dark:bg-yellow-900 border-yellow-500"
-                  }
-                } else if (item.isSelected) {
-                  itemClass += " bg-blue-100 dark:bg-blue-900 border-blue-500"
-                } else if (item.showError) {
-                  itemClass += " border-red-500 animate-pulse"
-                } else {
-                  itemClass += " border-gray-200 dark:border-slate-700 hover:border-blue-300"
-                }
-                
-                return (
-                  <div
-                    key={item.id}
-                    className={itemClass}
-                    onClick={() => handleItemClick(item)}
-                  >
-                    <div className="font-medium">{item.text}</div>
-                    {item.isMatched && (
-                      <CheckCircle2 size={20} className="mx-auto mt-2 text-green-600" />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          {cards.map((card) => {
+            let cardClass = "aspect-[4/3] p-4 rounded-xl flex items-center justify-center text-center cursor-pointer transition-all duration-200 shadow-sm border-2 select-none text-sm md:text-base font-medium"
 
-            {/* Right Column */}
-            <div className="space-y-3">
-              <h3 className="font-medium text-sm text-slate-600 dark:text-slate-400 mb-2">
-                Answers
-              </h3>
-              {rightItems.map((item) => {
-                let itemClass = "card p-4 text-center cursor-pointer transition-all border-2"
-                
-                if (item.isMatched) {
-                  if (item.matchType === 'green') {
-                    itemClass += " bg-green-100 dark:bg-green-900 border-green-500"
-                  } else {
-                    itemClass += " bg-yellow-100 dark:bg-yellow-900 border-yellow-500"
-                  }
-                } else if (item.isSelected) {
-                  itemClass += " bg-blue-100 dark:bg-blue-900 border-blue-500"
-                } else if (item.showError) {
-                  itemClass += " border-red-500 animate-pulse"
-                } else {
-                  itemClass += " border-gray-200 dark:border-slate-700 hover:border-blue-300"
-                }
-                
-                return (
-                  <div
-                    key={item.id}
-                    className={itemClass}
-                    onClick={() => handleItemClick(item)}
-                  >
-                    <div className="font-medium">{item.text}</div>
-                    {item.isMatched && (
-                      <CheckCircle2 size={20} className="mx-auto mt-2 text-green-600" />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+            if (card.state === 'matched') {
+              cardClass += " opacity-0 pointer-events-none transform scale-90"
+            } else if (card.state === 'selected') {
+              cardClass += " bg-blue-50 dark:bg-blue-900/30 border-blue-500 text-blue-700 dark:text-blue-300 shadow-md transform -translate-y-1"
+            } else if (card.state === 'wrong') {
+              cardClass += " bg-red-50 dark:bg-red-900/30 border-red-500 text-red-700 dark:text-red-300 animate-shake"
+            } else {
+              cardClass += " bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 text-slate-700 dark:text-slate-200"
+            }
+
+            return (
+              <div
+                key={card.id}
+                className={cardClass}
+                onClick={() => handleCardClick(card)}
+              >
+                {card.text}
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>

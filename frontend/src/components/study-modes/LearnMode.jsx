@@ -8,20 +8,20 @@ const LearnMode = () => {
   const [searchParams] = useSearchParams()
   const taskId = searchParams.get('taskId')
   const navigate = useNavigate()
-  
+
   const [flashcards, setFlashcards] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [loading, setLoading] = useState(true)
   const [sideSwapped, setSideSwapped] = useState(false)
   const [vocabularySentences, setVocabularySentences] = useState({}) // flashcardId -> sentences
-  
+
   // Status tracking
   const [cardStatus, setCardStatus] = useState({}) // flashcardId -> { known: false, attempts: 0 }
   const [correctCount, setCorrectCount] = useState(0)
   const [incorrectCount, setIncorrectCount] = useState(0)
   const [completed, setCompleted] = useState(false)
-  
+
   // Swipe gesture state
   const [dragStart, setDragStart] = useState(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0, rotation: 0 })
@@ -37,20 +37,20 @@ const LearnMode = () => {
         api.get(`/flashcards/study-plan/${planId}`),
         api.get(`/study-plans/${planId}`)
       ])
-      
+
       let cards = flashcardsRes.data
-      
+
       // Initialize status map
       const status = {}
       cards.forEach(card => {
         status[card.id] = { known: false, attempts: 0 }
       })
       setCardStatus(status)
-      
+
       // Shuffle cards
       cards = [...cards].sort(() => Math.random() - 0.5)
       setFlashcards(cards)
-      
+
       // Fetch vocabulary sentences for vocabulary plans
       if (planRes.data.category === 'vocabulary') {
         const sentencesMap = {}
@@ -89,7 +89,7 @@ const LearnMode = () => {
     const touch = e.touches[0]
     const deltaX = touch.clientX - dragStart.x
     const deltaY = touch.clientY - dragStart.y
-    
+
     // Calculate rotation based on horizontal drag
     const rotation = deltaX * 0.1 // Max rotation ~10 degrees per 100px
     setDragOffset({ x: deltaX, y: deltaY, rotation })
@@ -97,14 +97,14 @@ const LearnMode = () => {
 
   const handleTouchEnd = () => {
     if (!dragStart) return
-    
+
     const threshold = 100
     if (dragOffset.x > threshold) {
       handleSwipe('right')
     } else if (dragOffset.x < -threshold) {
       handleSwipe('left')
     }
-    
+
     // Reset drag state
     setDragStart(null)
     setDragOffset({ x: 0, y: 0, rotation: 0 })
@@ -125,24 +125,24 @@ const LearnMode = () => {
 
   const handleMouseUp = () => {
     if (!dragStart) return
-    
+
     const threshold = 100
     if (dragOffset.x > threshold) {
       handleSwipe('right')
     } else if (dragOffset.x < -threshold) {
       handleSwipe('left')
     }
-    
+
     setDragStart(null)
     setDragOffset({ x: 0, y: 0, rotation: 0 })
   }
 
   const handleSwipe = async (direction) => {
     if (!currentCard) return
-    
+
     const isKnown = direction === 'right'
     const cardId = currentCard.id
-    
+
     // Update status
     setCardStatus(prev => ({
       ...prev,
@@ -151,11 +151,11 @@ const LearnMode = () => {
         attempts: (prev[cardId]?.attempts || 0) + 1
       }
     }))
-    
+
     // Update counters
     if (isKnown) {
       setCorrectCount(prev => prev + 1)
-      
+
       // Update mastery level
       try {
         const newMastery = Math.min(100, (currentCard.mastery_level || 0) + 10)
@@ -163,27 +163,27 @@ const LearnMode = () => {
       } catch (error) {
         console.error('Failed to update mastery:', error)
       }
-      
+
       // Remove card from deck
       const newCards = flashcards.filter((_, i) => i !== currentIndex)
       if (newCards.length === 0) {
         setCompleted(true)
         return
       }
-      
+
       // Adjust index
       const newIndex = currentIndex >= newCards.length ? newCards.length - 1 : currentIndex
       setFlashcards(newCards)
       setCurrentIndex(newIndex)
     } else {
       setIncorrectCount(prev => prev + 1)
-      
+
       // Re-insert card 3-5 positions ahead
       const insertPosition = currentIndex + Math.floor(Math.random() * 3) + 3
       const newCards = [...flashcards]
       newCards.splice(insertPosition, 0, currentCard)
       setFlashcards(newCards)
-      
+
       // Move to next card
       if (currentIndex < flashcards.length - 1) {
         setCurrentIndex(currentIndex + 1)
@@ -191,7 +191,7 @@ const LearnMode = () => {
         setCurrentIndex(0)
       }
     }
-    
+
     setFlipped(false)
   }
 
@@ -279,7 +279,7 @@ const LearnMode = () => {
         <div className="card text-center py-12">
           <CheckCircle2 size={64} className="mx-auto mb-4 text-green-500" />
           <h2 className="text-2xl font-bold mb-2">All Cards Mastered!</h2>
-          
+
           <div className="mt-6 space-y-2 text-left max-w-md mx-auto">
             <div className="flex justify-between">
               <span className="text-slate-600 dark:text-slate-400">Total cards reviewed:</span>
@@ -329,89 +329,64 @@ const LearnMode = () => {
   const dragStyle = {
     transform: `translate(${dragOffset.x}px, ${dragOffset.y}px) rotate(${dragOffset.rotation}deg)`,
     transition: dragStart ? 'none' : 'transform 0.3s ease-out',
-    boxShadow: dragOffset.x > 50 
-      ? '0 4px 20px rgba(34, 197, 94, 0.3)' 
-      : dragOffset.x < -50 
-      ? '0 4px 20px rgba(239, 68, 68, 0.3)' 
-      : '0 2px 8px rgba(0, 0, 0, 0.1)'
+    boxShadow: dragOffset.x > 50
+      ? '0 4px 20px rgba(34, 197, 94, 0.3)'
+      : dragOffset.x < -50
+        ? '0 4px 20px rgba(239, 68, 68, 0.3)'
+        : '0 2px 8px rgba(0, 0, 0, 0.1)'
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-slate-700">
+      <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <button
             onClick={() => navigate(`/plans/${planId}`)}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
-          
+
           <div className="flex items-center gap-4">
-            <div className="text-sm">
-              <span className="font-medium">Card {currentIndex + 1} / {totalCards}</span>
+            <div className="text-sm font-medium text-slate-600 dark:text-slate-300">
+              {currentIndex + 1} / {totalCards}
             </div>
-            
+
             <button
               onClick={handleSwapSides}
-              className="px-3 py-1 text-sm btn-secondary"
+              className="px-3 py-1 text-sm btn-secondary flex items-center gap-2"
             >
-              {sideSwapped ? 'Q: Answer' : 'Q: Question'} ↔️
+              <span>{sideSwapped ? 'Answer' : 'Term'}</span>
+              <RefreshCw size={14} />
             </button>
-            
+
             <button
               onClick={handleShuffle}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
               title="Shuffle"
             >
               <Shuffle size={20} />
             </button>
           </div>
         </div>
-        
-        {/* Progress Ring */}
-        <div className="flex items-center justify-center gap-4">
-          <div className="relative w-16 h-16">
-            <svg className="transform -rotate-90 w-16 h-16">
-              <circle
-                cx="32"
-                cy="32"
-                r="28"
-                stroke="currentColor"
-                strokeWidth="4"
-                fill="none"
-                className="text-gray-200 dark:text-slate-700"
-              />
-              <circle
-                cx="32"
-                cy="32"
-                r="28"
-                stroke="currentColor"
-                strokeWidth="4"
-                fill="none"
-                strokeDasharray={`${2 * Math.PI * 28}`}
-                strokeDashoffset={`${2 * Math.PI * 28 * (1 - progress / 100)}`}
-                className="text-blue-500 transition-all duration-300"
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-xs font-medium">{Math.round(progress)}%</span>
-            </div>
-          </div>
-          <div className="text-sm">
-            <div className="font-medium">{knownCards} / {totalCards} mastered</div>
-            <div className="flex gap-4 mt-1">
-              <span className="text-green-600 dark:text-green-400">✓ {correctCount}</span>
-              <span className="text-red-600 dark:text-red-400">✗ {incorrectCount}</span>
-            </div>
-          </div>
+
+        {/* Progress Bar */}
+        <div className="w-full h-2 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-blue-500 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="flex justify-between mt-1 text-xs text-slate-500 font-medium">
+          <span>{knownCards} mastered</span>
+          <span>{totalCards - knownCards} remaining</span>
         </div>
       </div>
 
       {/* Card Area */}
-      <div 
-        className="flex-1 flex items-center justify-center p-4"
+      <div
+        className="flex-1 flex items-center justify-center p-4 overflow-hidden"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -422,68 +397,61 @@ const LearnMode = () => {
       >
         <div
           ref={cardRef}
-          className={`w-full max-w-md ${flipped ? 'flipped' : ''}`}
+          className={`w-full max-w-md aspect-[3/4] md:aspect-[4/3] perspective-1000 cursor-pointer ${flipped ? 'flipped' : ''}`}
           style={dragStyle}
+          onClick={handleFlip}
         >
-          <div className="card-flip">
-            <div className="card-flip-inner">
-              {/* Front Side */}
-              <div className="card-flip-front">
-                <div 
-                  className="card h-96 flex flex-col items-center justify-center cursor-pointer"
-                  onClick={handleFlip}
-                >
-                  <div className="text-center p-6 w-full">
-                    <div className="text-3xl font-semibold mb-4">{displayFront}</div>
-                    <div className="text-sm text-slate-600 dark:text-slate-400 mt-8">
-                      Tap to reveal answer
-                    </div>
-                  </div>
+          <div className="card-flip-inner w-full h-full relative transition-transform duration-500 transform-style-3d">
+            {/* Front Side */}
+            <div className="card-flip-front absolute inset-0 w-full h-full backface-hidden bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-200 dark:border-slate-700 flex flex-col items-center justify-center p-8">
+              <div className="text-center w-full">
+                <div className="text-3xl md:text-4xl font-bold text-slate-800 dark:text-white mb-4 leading-tight">
+                  {displayFront}
+                </div>
+                <div className="text-sm text-slate-500 dark:text-slate-400 mt-8 font-medium uppercase tracking-wide">
+                  Tap to flip
                 </div>
               </div>
-              
-              {/* Back Side */}
-              <div className="card-flip-back">
-                <div 
-                  className="card h-96 flex flex-col items-center justify-center cursor-pointer bg-blue-50 dark:bg-blue-900/20 overflow-y-auto"
-                  onClick={handleFlip}
-                >
-                  <div className="text-center p-6 w-full">
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                      {displayFront}
-                    </div>
-                    <div className="text-3xl font-semibold mb-4 text-blue-600 dark:text-blue-400">
-                      {displayBack}
-                    </div>
-                    
-                    {/* Vocabulary Sentences (only for vocabulary category) */}
-                    {sentences.length > 0 && (
-                      <div className="mt-6 text-left">
-                        <div className="text-sm font-medium mb-2 text-slate-700 dark:text-slate-300">
-                          Example Sentences:
-                        </div>
-                        {sentences.slice(0, 3).map((sentence, idx) => (
-                          <div key={idx} className="text-sm text-slate-600 dark:text-slate-400 mb-2 p-2 bg-white dark:bg-slate-800 rounded">
-                            {sentence.highlighted_words && sentence.highlighted_words.length > 0 ? (
-                              <span>
-                                {sentence.sentence_text.substring(0, sentence.highlighted_words[0].start_index)}
-                                <span className="font-bold bg-yellow-200 dark:bg-yellow-800 px-1 rounded">
-                                  {sentence.sentence_text.substring(
-                                    sentence.highlighted_words[0].start_index,
-                                    sentence.highlighted_words[0].end_index
-                                  )}
-                                </span>
-                                {sentence.sentence_text.substring(sentence.highlighted_words[0].end_index)}
-                              </span>
-                            ) : (
-                              sentence.sentence_text
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+            </div>
+
+            {/* Back Side */}
+            <div className="card-flip-back absolute inset-0 w-full h-full backface-hidden bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-200 dark:border-slate-700 flex flex-col items-center justify-center p-8 rotate-y-180 overflow-y-auto">
+              <div className="text-center w-full">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+                  {displayFront}
                 </div>
+                <div className="text-3xl md:text-4xl font-bold text-blue-600 dark:text-blue-400 mb-6 leading-tight">
+                  {displayBack}
+                </div>
+
+                {/* Vocabulary Sentences */}
+                {sentences.length > 0 && (
+                  <div className="mt-8 text-left bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                      Examples
+                    </div>
+                    <div className="space-y-3">
+                      {sentences.slice(0, 2).map((sentence, idx) => (
+                        <div key={idx} className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                          {sentence.highlighted_words && sentence.highlighted_words.length > 0 ? (
+                            <span>
+                              {sentence.sentence_text.substring(0, sentence.highlighted_words[0].start_index)}
+                              <span className="font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-1 rounded">
+                                {sentence.sentence_text.substring(
+                                  sentence.highlighted_words[0].start_index,
+                                  sentence.highlighted_words[0].end_index
+                                )}
+                              </span>
+                              {sentence.sentence_text.substring(sentence.highlighted_words[0].end_index)}
+                            </span>
+                          ) : (
+                            sentence.sentence_text
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -491,48 +459,34 @@ const LearnMode = () => {
       </div>
 
       {/* Controls */}
-      <div className="p-4 border-t border-gray-200 dark:border-slate-700 space-y-4">
-        {/* Navigation */}
-        <div className="flex gap-2">
+      <div className="p-6 bg-white dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700">
+        <div className="max-w-md mx-auto flex gap-4">
           <button
-            onClick={handlePrevious}
-            disabled={currentIndex === 0 || flashcards.length === 1}
-            className="flex-1 btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={(e) => { e.stopPropagation(); handleSwipe('left'); }}
+            className="flex-1 py-4 rounded-xl border-2 border-red-100 dark:border-red-900/30 bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 font-bold hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors flex flex-col items-center justify-center gap-1"
           >
-            <ChevronLeft size={20} className="inline mr-1" />
-            Previous
+            <XCircle size={24} />
+            <span>Still learning</span>
           </button>
+
           <button
-            onClick={handleFlip}
-            className="flex-1 btn-secondary"
+            onClick={(e) => { e.stopPropagation(); handleSwipe('right'); }}
+            className="flex-1 py-4 rounded-xl bg-green-500 text-white font-bold hover:bg-green-600 transition-colors shadow-lg shadow-green-500/30 flex flex-col items-center justify-center gap-1"
           >
-            {flipped ? 'Show Question' : 'Flip Card'}
-          </button>
-          <button
-            onClick={handleNext}
-            disabled={currentIndex === flashcards.length - 1 || flashcards.length === 1}
-            className="flex-1 btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Next
-            <ChevronRight size={20} className="inline ml-1" />
+            <CheckCircle2 size={24} />
+            <span>Know it</span>
           </button>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          <button
-            onClick={() => handleSwipe('left')}
-            className="flex-1 btn-secondary text-red-600 dark:text-red-400 border-red-300 dark:border-red-700"
-          >
-            <XCircle size={20} className="inline mr-2" />
-            Need Practice
+        <div className="flex justify-center gap-8 mt-6 text-slate-400">
+          <button onClick={handlePrevious} disabled={currentIndex === 0} className="hover:text-slate-600 dark:hover:text-slate-200 disabled:opacity-30 transition-colors">
+            <ChevronLeft size={24} />
           </button>
-          <button
-            onClick={() => handleSwipe('right')}
-            className="flex-1 btn-primary"
-          >
-            <CheckCircle2 size={20} className="inline mr-2" />
-            I Know This
+          <button onClick={handleFlip} className="hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+            <RefreshCw size={20} />
+          </button>
+          <button onClick={handleNext} disabled={currentIndex === flashcards.length - 1} className="hover:text-slate-600 dark:hover:text-slate-200 disabled:opacity-30 transition-colors">
+            <ChevronRight size={24} />
           </button>
         </div>
       </div>

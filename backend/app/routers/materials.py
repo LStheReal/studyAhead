@@ -122,9 +122,9 @@ async def process_materials_background(
         # Generate vocabulary flashcards with proper language mapping
         flashcard_data = ai_service.generate_vocabulary_flashcards(
             analysis, 
+            combined_text,
             question_language=question_language,
-            answer_language=answer_language,
-            count=30
+            answer_language=answer_language
         )
         
         if not flashcard_data or len(flashcard_data) == 0:

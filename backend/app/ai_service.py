@@ -139,14 +139,18 @@ Return a JSON object with a "flashcards" array:
     def generate_vocabulary_flashcards(
         self,
         material_summary: Dict[str, Any],
+        text_content: str,
         question_language: str,
-        answer_language: str,
-        count: int = 30
+        answer_language: str
     ) -> List[Dict[str, Any]]:
         """Generate vocabulary flashcards with proper language mapping."""
-        prompt = f"""Generate {count} vocabulary flashcards from this material:
+        prompt = f"""Generate flashcards for ALL vocabulary pairs found in this material:
 
 Title: {material_summary.get('title', '')}
+Content:
+{text_content[:8000]}
+
+For each flashcard:
 Topics: {', '.join(material_summary.get('main_topics', []))}
 
 For each flashcard:

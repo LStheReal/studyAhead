@@ -87,7 +87,7 @@ const CreateStudyPlan = () => {
           })
 
           // Start polling for status
-          pollProcessingStatus()
+          pollProcessingStatus(newPlanId)
         } catch (uploadError) {
           console.error('Upload error:', uploadError)
           let uploadErrorMsg = 'Failed to upload materials'
@@ -169,7 +169,7 @@ const CreateStudyPlan = () => {
       })
 
       // Start polling for status
-      pollProcessingStatus()
+      pollProcessingStatus(planId)
     } catch (error) {
       console.error('Upload materials error:', error)
       let errorMessage = 'Failed to upload materials'
@@ -197,10 +197,10 @@ const CreateStudyPlan = () => {
     }
   }
 
-  const pollProcessingStatus = async () => {
+  const pollProcessingStatus = async (currentPlanId) => {
     const interval = setInterval(async () => {
       try {
-        const response = await api.get(`/materials/${planId}/status`)
+        const response = await api.get(`/materials/${currentPlanId}/status`)
         const status = response.data
 
         setProcessingStatus({

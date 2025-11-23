@@ -1,14 +1,14 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
-import { ArrowLeft, RotateCcw, Trophy, CheckCircle2, XCircle } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Trophy, CheckCircle2, XCircle, HelpCircle } from 'lucide-react'
 
 // LCS (Longest Common Subsequence) diff algorithm
 const computeLCS = (str1, str2) => {
   const m = str1.length
   const n = str2.length
   const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0))
-  
+
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       if (str1[i - 1] === str2[j - 1]) {
@@ -18,7 +18,7 @@ const computeLCS = (str1, str2) => {
       }
     }
   }
-  
+
   // Reconstruct LCS
   const lcs = []
   let i = m, j = n
@@ -33,7 +33,7 @@ const computeLCS = (str1, str2) => {
       j--
     }
   }
-  
+
   return lcs
 }
 
@@ -48,15 +48,15 @@ const normalizeText = (text) => {
 const compareAnswers = (userAnswer, correctAnswer) => {
   const normalizedUser = normalizeText(userAnswer)
   const normalizedCorrect = normalizeText(correctAnswer)
-  
+
   if (normalizedUser === normalizedCorrect) {
     return { isCorrect: true, diff: null }
   }
-  
+
   // Compute LCS
   const lcs = computeLCS(normalizedUser, normalizedCorrect)
   const lcsPositions = new Set(lcs.map(item => item.pos1))
-  
+
   // Build diff for user answer
   const userDiff = []
   for (let i = 0; i < normalizedUser.length; i++) {
@@ -66,7 +66,7 @@ const compareAnswers = (userAnswer, correctAnswer) => {
       userDiff.push({ char: normalizedUser[i], status: 'incorrect' })
     }
   }
-  
+
   // Build diff for correct answer (showing missing/wrong chars)
   const correctDiff = []
   const userLcsPositions = new Set(lcs.map(item => item.pos2))
@@ -77,7 +77,7 @@ const compareAnswers = (userAnswer, correctAnswer) => {
       correctDiff.push({ char: normalizedCorrect[i], status: 'missing' })
     }
   }
-  
+
   return { isCorrect: false, diff: { user: userDiff, correct: correctDiff } }
 }
 
@@ -87,7 +87,7 @@ const WritingPractice = () => {
   const taskId = searchParams.get('taskId')
   const testMode = searchParams.get('testMode') === 'true'
   const navigate = useNavigate()
-  
+
   const [flashcards, setFlashcards] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [userAnswer, setUserAnswer] = useState('')
@@ -95,16 +95,16 @@ const WritingPractice = () => {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(true)
   const [sideSwapped, setSideSwapped] = useState(false)
-  
+
   // Progress tracking
   const [cardStatus, setCardStatus] = useState({}) // flashcardId -> { known: false, attempts: 0 }
   const [correctCount, setCorrectCount] = useState(0)
   const [incorrectCount, setIncorrectCount] = useState(0)
   const [completed, setCompleted] = useState(false)
-  
+
   // Test results
   const [testResults, setTestResults] = useState([])
-  
+
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -121,11 +121,11 @@ const WritingPractice = () => {
     try {
       const response = await api.get(`/flashcards/study-plan/${planId}`)
       const cards = response.data
-      
+
       // Shuffle
       const shuffled = [...cards].sort(() => Math.random() - 0.5)
       setFlashcards(shuffled)
-      
+
       // Initialize status
       const status = {}
       cards.forEach(card => {
@@ -145,22 +145,22 @@ const WritingPractice = () => {
 
   const handleCheckAnswer = () => {
     if (!userAnswer.trim() || !currentCard) return
-    
+
     const comparison = compareAnswers(userAnswer, correctAnswer)
     setResult(comparison)
     setSubmitted(true)
-    
+
     const cardId = currentCard.id
     const status = cardStatus[cardId] || { known: false, attempts: 0 }
-    
+
     if (comparison.isCorrect) {
       setCorrectCount(prev => prev + 1)
       status.known = true
-      
+
       // Update mastery
       api.post(`/flashcards/${cardId}/update-mastery?mastery_level=${Math.min(100, (currentCard.mastery_level || 0) + 10)}`)
         .catch(console.error)
-      
+
       // Track test results
       if (testMode) {
         setTestResults(prev => [...prev, { flashcardId: cardId, correct: true }])
@@ -168,22 +168,22 @@ const WritingPractice = () => {
     } else {
       setIncorrectCount(prev => prev + 1)
       status.attempts = (status.attempts || 0) + 1
-      
+
       // Track test results
       if (testMode) {
         setTestResults(prev => [...prev, { flashcardId: cardId, correct: false }])
       }
     }
-    
+
     setCardStatus(prev => ({ ...prev, [cardId]: status }))
   }
 
   const handleContinue = () => {
     if (!currentCard) return
-    
+
     const cardId = currentCard.id
     const status = cardStatus[cardId]
-    
+
     if (result?.isCorrect) {
       // Remove card from deck
       const newCards = flashcards.filter((_, i) => i !== currentIndex)
@@ -191,7 +191,7 @@ const WritingPractice = () => {
         setCompleted(true)
         return
       }
-      
+
       // Adjust index
       const newIndex = currentIndex >= newCards.length ? newCards.length - 1 : currentIndex
       setFlashcards(newCards)
@@ -202,7 +202,7 @@ const WritingPractice = () => {
       const newCards = [...flashcards]
       newCards.splice(insertPosition, 0, currentCard)
       setFlashcards(newCards)
-      
+
       // Move to next
       if (currentIndex < flashcards.length - 1) {
         setCurrentIndex(currentIndex + 1)
@@ -210,7 +210,7 @@ const WritingPractice = () => {
         setCurrentIndex(0)
       }
     }
-    
+
     // Reset state
     setUserAnswer('')
     setSubmitted(false)
@@ -224,12 +224,20 @@ const WritingPractice = () => {
     status.attempts = (status.attempts || 0) + 1
     setCardStatus(prev => ({ ...prev, [cardId]: status }))
     setIncorrectCount(prev => prev + 1)
-    
+
     if (testMode) {
       setTestResults(prev => [...prev, { flashcardId: cardId, correct: false }])
     }
-    
-    handleContinue()
+
+    // Show correct answer before continuing
+    setResult({
+      isCorrect: false,
+      diff: {
+        user: [],
+        correct: normalizeText(correctAnswer).split('').map(c => ({ char: c, status: 'missing' }))
+      }
+    })
+    setSubmitted(true)
   }
 
   const handleRestart = () => {
@@ -246,7 +254,7 @@ const WritingPractice = () => {
     setUserAnswer('')
     setSubmitted(false)
     setResult(null)
-    
+
     // Reshuffle
     const shuffled = [...flashcards].sort(() => Math.random() - 0.5)
     setFlashcards(shuffled)
@@ -292,7 +300,7 @@ const WritingPractice = () => {
     const totalAttempts = Object.values(cardStatus).reduce((sum, s) => sum + s.attempts, 0)
     const avgAttempts = totalWords > 0 ? (totalAttempts / totalWords).toFixed(1) : 0
     const accuracy = totalWords > 0 ? (correctCount / (correctCount + incorrectCount)) * 100 : 0
-    
+
     if (testMode) {
       return (
         <div className="p-4">
@@ -316,13 +324,13 @@ const WritingPractice = () => {
         </div>
       )
     }
-    
+
     return (
       <div className="p-4">
         <div className="card text-center py-12">
           <Trophy size={64} className="mx-auto mb-4 text-yellow-500" />
           <h2 className="text-2xl font-bold mb-2">Writing Practice Complete!</h2>
-          
+
           <div className="mt-6 space-y-2 text-left max-w-md mx-auto">
             <div className="flex justify-between">
               <span className="text-slate-600 dark:text-slate-400">Total words practiced:</span>
@@ -363,21 +371,21 @@ const WritingPractice = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-slate-700">
+      <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
         <div className="flex items-center justify-between mb-2">
           <button
             onClick={() => navigate(`/plans/${planId}`)}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
-          
-          <div className="text-sm">
-            <span className="font-medium">Card {currentIndex + 1} / {flashcards.length}</span>
+
+          <div className="text-sm font-medium text-slate-600 dark:text-slate-300">
+            Card {currentIndex + 1} / {flashcards.length}
           </div>
-          
+
           <button
             onClick={() => setSideSwapped(!sideSwapped)}
             className="px-3 py-1 text-sm btn-secondary"
@@ -385,94 +393,120 @@ const WritingPractice = () => {
             {sideSwapped ? 'Q: Answer' : 'Q: Question'} ↔️
           </button>
         </div>
-        
-        <div className="flex justify-center gap-6 text-sm mt-2">
-          <span className="text-green-600 dark:text-green-400">✓ {correctCount}</span>
-          <span className="text-red-600 dark:text-red-400">✗ {incorrectCount}</span>
+
+        <div className="flex justify-center gap-6 text-sm mt-2 font-medium">
+          <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
+            <CheckCircle2 size={16} /> {correctCount}
+          </span>
+          <span className="text-red-600 dark:text-red-400 flex items-center gap-1">
+            <XCircle size={16} /> {incorrectCount}
+          </span>
         </div>
       </div>
 
       {/* Question Card */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className="card max-w-2xl mx-auto">
-          <div className="text-center mb-6">
-            <div className="text-2xl font-semibold mb-4">
+      <div className="flex-1 p-4 overflow-y-auto flex flex-col items-center justify-center">
+        <div className="w-full max-w-2xl">
+          <div className="card p-8 md:p-12 mb-6 text-center shadow-lg">
+            <div className="text-sm text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 font-bold">
+              Translate this term
+            </div>
+            <div className="text-3xl md:text-4xl font-bold mb-8 text-slate-800 dark:text-white">
               {displayQuestion}
             </div>
-          </div>
 
-          {/* Input Field */}
-          <div className="mb-6">
-            <input
-              ref={inputRef}
-              type="text"
-              value={userAnswer}
-              onChange={(e) => setUserAnswer(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && !submitted && userAnswer.trim()) {
-                  handleCheckAnswer()
-                }
-              }}
-              placeholder="Type your answer..."
-              disabled={submitted}
-              className="w-full px-4 py-3 text-lg border-2 border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:border-blue-500 bg-white dark:bg-white text-slate-900"
-            />
+            {/* Input Field */}
+            <div className="relative">
+              <input
+                ref={inputRef}
+                type="text"
+                value={userAnswer}
+                onChange={(e) => setUserAnswer(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !submitted && userAnswer.trim()) {
+                    handleCheckAnswer()
+                  } else if (e.key === 'Enter' && submitted) {
+                    handleContinue()
+                  }
+                }}
+                placeholder="Type the answer..."
+                disabled={submitted}
+                className={`w-full px-6 py-4 text-xl md:text-2xl text-center border-b-4 bg-transparent focus:outline-none transition-all ${submitted
+                    ? result?.isCorrect
+                      ? 'border-green-500 text-green-600'
+                      : 'border-red-500 text-red-600'
+                    : 'border-gray-300 dark:border-slate-600 focus:border-blue-500 text-slate-800 dark:text-white'
+                  }`}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
+              />
+              {!submitted && (
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-medium hidden md:block">
+                  Press Enter
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Result Display */}
           {submitted && result && (
-            <div className="mb-6">
+            <div className="card p-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
               {result.isCorrect ? (
-                <div className="text-center">
-                  <CheckCircle2 size={48} className="mx-auto mb-4 text-green-500" />
-                  <div className="text-xl font-semibold text-green-600 dark:text-green-400 mb-2">
-                    Correct!
+                <div className="flex items-center gap-4 text-green-600 dark:text-green-400">
+                  <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-full">
+                    <CheckCircle2 size={32} />
                   </div>
-                  <div className="text-lg text-slate-600 dark:text-slate-400">
-                    Your answer: <span className="font-medium text-green-600">{userAnswer}</span>
+                  <div>
+                    <div className="text-lg font-bold">Correct!</div>
+                    <div className="text-slate-600 dark:text-slate-400">You got it right.</div>
                   </div>
                 </div>
               ) : (
-                <div className="text-center">
-                  <XCircle size={48} className="mx-auto mb-4 text-red-500" />
-                  <div className="text-xl font-semibold text-red-600 dark:text-red-400 mb-4">
-                    Not quite
-                  </div>
-                  
-                  {/* Character-by-character comparison */}
-                  <div className="text-left space-y-3">
+                <div>
+                  <div className="flex items-center gap-4 text-red-600 dark:text-red-400 mb-6">
+                    <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-full">
+                      <XCircle size={32} />
+                    </div>
                     <div>
-                      <div className="text-sm font-medium mb-1 text-slate-600 dark:text-slate-400">
-                        Your answer:
+                      <div className="text-lg font-bold">Incorrect</div>
+                      <div className="text-slate-600 dark:text-slate-400">Study this one carefully.</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        You said
                       </div>
-                      <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg">
-                        {result.diff.user.map((item, idx) => (
+                      <div className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-xl font-mono text-lg">
+                        {result.diff.user.length > 0 ? result.diff.user.map((item, idx) => (
                           <span
                             key={idx}
                             className={
                               item.status === 'correct'
-                                ? 'bg-green-200 dark:bg-green-800'
-                                : 'bg-red-200 dark:bg-red-800'
+                                ? 'text-slate-400'
+                                : 'text-red-600 font-bold bg-red-100 dark:bg-red-900/30 px-0.5 rounded'
                             }
                           >
                             {item.char}
                           </span>
-                        ))}
+                        )) : <span className="text-slate-400 italic">(empty)</span>}
                       </div>
                     </div>
-                    
-                    <div>
-                      <div className="text-sm font-medium mb-1 text-slate-600 dark:text-slate-400">
-                        Correct answer:
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        Correct Answer
                       </div>
-                      <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg">
+                      <div className="p-4 bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/30 rounded-xl font-mono text-lg">
                         {result.diff.correct.map((item, idx) => (
                           <span
                             key={idx}
                             className={
                               item.status === 'correct'
-                                ? 'text-slate-600 dark:text-slate-400'
-                                : 'font-bold text-red-600 dark:text-red-400'
+                                ? 'text-slate-800 dark:text-slate-200'
+                                : 'text-green-600 font-bold'
                             }
                           >
                             {item.char}
@@ -489,50 +523,36 @@ const WritingPractice = () => {
       </div>
 
       {/* Controls */}
-      <div className="p-4 border-t border-gray-200 dark:border-slate-700 space-y-3">
-        {!submitted ? (
-          <button
-            onClick={handleCheckAnswer}
-            disabled={!userAnswer.trim()}
-            className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Check Answer
-          </button>
-        ) : (
-          <div className="flex gap-3">
-            {!result?.isCorrect && (
-              <button
-                onClick={() => {
-                  setUserAnswer('')
-                  setSubmitted(false)
-                  setResult(null)
-                  if (inputRef.current) inputRef.current.focus()
-                }}
-                className="flex-1 btn-secondary"
-              >
-                Try Again
-              </button>
-            )}
-            {!result?.isCorrect && (
+      <div className="p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <div className="max-w-2xl mx-auto space-y-3">
+          {!submitted ? (
+            <div className="flex gap-3">
               <button
                 onClick={handleSkip}
-                className="flex-1 btn-secondary"
+                className="px-6 py-4 rounded-xl border-2 border-gray-200 dark:border-slate-700 font-bold text-slate-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
               >
-                Show Answer
+                Don't know
               </button>
-            )}
+              <button
+                onClick={handleCheckAnswer}
+                disabled={!userAnswer.trim()}
+                className="flex-1 btn-primary py-4 text-lg font-bold shadow-lg shadow-blue-500/20 disabled:shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                Check Answer
+              </button>
+            </div>
+          ) : (
             <button
               onClick={handleContinue}
-              className="flex-1 btn-primary"
+              className="w-full btn-primary py-4 text-lg font-bold shadow-lg shadow-blue-500/20 transition-all"
             >
-              Continue
+              Continue <span className="ml-2 text-white/60 text-sm font-normal">(Enter)</span>
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
 export default WritingPractice
-
