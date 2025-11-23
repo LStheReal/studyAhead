@@ -97,6 +97,34 @@ async def delete_flashcard(
     db.commit()
     return {"message": "Flashcard deleted"}
 
+@router.get("/{flashcard_id}/sentences")
+async def get_vocabulary_sentences(
+    flashcard_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get vocabulary sentences for a flashcard."""
+    flashcard = db.query(Flashcard).join(StudyPlan).filter(
+        Flashcard.id == flashcard_id,
+        StudyPlan.user_id == current_user.id
+    ).first()
+    
+    if not flashcard:
+        raise HTTPException(status_code=404, detail="Flashcard not found")
+    
+    sentences = db.query(VocabularySentence).filter(
+        VocabularySentence.flashcard_id == flashcard_id
+    ).all()
+    
+    return [
+        {
+            "id": s.id,
+            "sentence_text": s.sentence_text,
+            "highlighted_words": s.highlighted_words or []
+        }
+        for s in sentences
+    ]
+
 @router.post("/{flashcard_id}/generate-sentences")
 async def generate_vocabulary_sentences(
     flashcard_id: int,
@@ -137,6 +165,37 @@ async def generate_vocabulary_sentences(
     
     db.commit()
     return {"message": "Sentences generated", "count": len(sentences_data)}
+
+@router.get("/{flashcard_id}/mcq")
+async def get_mcq_questions(
+    flashcard_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get MCQ questions for a flashcard."""
+    flashcard = db.query(Flashcard).join(StudyPlan).filter(
+        Flashcard.id == flashcard_id,
+        StudyPlan.user_id == current_user.id
+    ).first()
+    
+    if not flashcard:
+        raise HTTPException(status_code=404, detail="Flashcard not found")
+    
+    questions = db.query(MCQQuestion).filter(
+        MCQQuestion.flashcard_id == flashcard_id
+    ).all()
+    
+    return [
+        {
+            "id": q.id,
+            "question_text": q.question_text,
+            "options": q.options or [],
+            "correct_answer_index": q.correct_answer_index,
+            "rationale": q.rationale or "",
+            "question_type": q.question_type or "standard"
+        }
+        for q in questions
+    ]
 
 @router.post("/{flashcard_id}/generate-mcq")
 async def generate_mcq_questions(

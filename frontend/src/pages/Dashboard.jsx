@@ -119,7 +119,7 @@ const Dashboard = () => {
           </div>
           {stats.today_tasks.length > 0 && (
             <button
-              onClick={() => navigate(`/study/${stats.active_study_plan.id}/${stats.today_tasks[0].mode}`)}
+              onClick={() => navigate(`/study/${stats.active_study_plan.id}/${stats.today_tasks[0].mode}?taskId=${stats.today_tasks[0].id}`)}
               className="w-full btn-primary"
             >
               Start Next Task
@@ -136,7 +136,7 @@ const Dashboard = () => {
             {stats.today_tasks.map((task) => (
               <button
                 key={task.id}
-                onClick={() => navigate(`/study/${task.study_plan_id}/${task.mode}`)}
+                onClick={() => navigate(`/study/${task.study_plan_id}/${task.mode}?taskId=${task.id}`)}
                 className="w-full text-left p-3 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
               >
                 <div className="flex items-center justify-between">

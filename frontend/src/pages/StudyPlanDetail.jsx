@@ -44,8 +44,12 @@ const StudyPlanDetail = () => {
     }
   }
 
-  const handleStartMode = (mode) => {
-    navigate(`/study/${id}/${mode}`)
+  const handleStartMode = (mode, taskId = null) => {
+    if (taskId) {
+      navigate(`/study/${id}/${mode}?taskId=${taskId}`)
+    } else {
+      navigate(`/study/${id}/${mode}`)
+    }
   }
 
   const studyModes = [
@@ -210,7 +214,7 @@ const StudyPlanDetail = () => {
                               <CheckCircle2 size={16} className="text-green-500 mt-1" />
                             ) : (
                               <button
-                                onClick={() => handleStartMode(task.mode)}
+                                onClick={() => handleStartMode(task.mode, task.id)}
                                 className="mt-1 text-blue-500 hover:text-blue-600"
                               >
                                 <Play size={16} />
