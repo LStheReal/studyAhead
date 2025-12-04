@@ -15,20 +15,20 @@ const normalizeText = (text) => {
 const compareAnswers = (userAnswer, correctAnswer) => {
   const normalizedUser = normalizeText(userAnswer)
   const normalizedCorrect = normalizeText(correctAnswer)
-  
+
   if (normalizedUser === normalizedCorrect) {
     return { isCorrect: true }
   }
-  
+
   // Simple character-by-character comparison
   const userDiff = []
   const correctDiff = []
   const maxLen = Math.max(normalizedUser.length, normalizedCorrect.length)
-  
+
   for (let i = 0; i < maxLen; i++) {
     const userChar = normalizedUser[i] || ''
     const correctChar = normalizedCorrect[i] || ''
-    
+
     if (userChar === correctChar && userChar !== '') {
       userDiff.push({ char: userChar, status: 'correct' })
       correctDiff.push({ char: correctChar, status: 'correct' })
@@ -41,7 +41,7 @@ const compareAnswers = (userAnswer, correctAnswer) => {
       }
     }
   }
-  
+
   return { isCorrect: false, diff: { user: userDiff, correct: correctDiff } }
 }
 
@@ -51,7 +51,7 @@ const FillTheGaps = () => {
   const taskId = searchParams.get('taskId')
   const testMode = searchParams.get('testMode') === 'true'
   const navigate = useNavigate()
-  
+
   const [flashcards, setFlashcards] = useState([])
   const [vocabularySentences, setVocabularySentences] = useState({}) // flashcardId -> [sentences]
   const [gapItems, setGapItems] = useState([]) // { flashcardId, flashcardFront, flashcardBack, sentenceId, sentence, correctWord, hint }
@@ -60,16 +60,16 @@ const FillTheGaps = () => {
   const [submitted, setSubmitted] = useState(false)
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(true)
-  
+
   // Progress tracking
   const [wordStatus, setWordStatus] = useState({}) // flashcardId -> { known: false, attempts: 0 }
   const [correctCount, setCorrectCount] = useState(0)
   const [incorrectCount, setIncorrectCount] = useState(0)
   const [completed, setCompleted] = useState(false)
-  
+
   // Test results
   const [testResults, setTestResults] = useState([])
-  
+
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -90,45 +90,56 @@ const FillTheGaps = () => {
         setLoading(false)
         return
       }
-      
+
       const flashcardsRes = await api.get(`/flashcards/study-plan/${planId}`)
       const cards = flashcardsRes.data
-      
+
+      console.log('Flashcards fetched:', cards)
+
       if (cards.length === 0) {
+        console.log('No flashcards found')
         setLoading(false)
         return
       }
-      
+
       setFlashcards(cards)
-      
+
       // Initialize word status
       const status = {}
       cards.forEach(card => {
         status[card.id] = { known: false, attempts: 0 }
       })
       setWordStatus(status)
-      
+
       // Fetch vocabulary sentences for all flashcards
-      const sentencesMap = {}
+      let sentencesMap = {}
+      try {
+        const sentencesRes = await api.get(`/flashcards/study-plan/${planId}/sentences`)
+        sentencesMap = sentencesRes.data || {}
+        console.log('Sentences fetched:', sentencesMap)
+      } catch (error) {
+        console.error('Failed to fetch sentences:', error)
+      }
+
       const items = []
-      
+
       for (const card of cards) {
         try {
-          const sentencesRes = await api.get(`/flashcards/${card.id}/sentences`)
-          const sentences = sentencesRes.data || []
-          
+          const sentences = sentencesMap[card.id] || []
+          console.log(`Processing card ${card.id}, sentences:`, sentences)
+
           if (sentences.length > 0) {
-            sentencesMap[card.id] = sentences
-            
             // Randomly select ONE sentence per flashcard
             const randomSentence = sentences[Math.floor(Math.random() * sentences.length)]
-            
+            console.log('Selected sentence:', randomSentence)
+
             // Extract correct word from highlighted words
             let correctWord = ''
             let hint = card.front_text // Use front as hint by default
-            
+
             if (randomSentence.highlighted_words && randomSentence.highlighted_words.length > 0) {
               const firstHighlight = randomSentence.highlighted_words[0]
+              console.log('First highlight:', firstHighlight)
               correctWord = randomSentence.sentence_text.substring(
                 firstHighlight.start_index,
                 firstHighlight.end_index
@@ -142,7 +153,9 @@ const FillTheGaps = () => {
                 correctWord = foundWord
               }
             }
-            
+
+            console.log('Correct word:', correctWord)
+
             if (correctWord) {
               items.push({
                 flashcardId: card.id,
@@ -156,15 +169,18 @@ const FillTheGaps = () => {
             }
           }
         } catch (error) {
-          console.error(`Failed to fetch sentences for flashcard ${card.id}:`, error)
+          console.error(`Failed to process flashcard ${card.id}:`, error)
         }
       }
-      
+
+      console.log('Final items:', items)
+
       if (items.length === 0) {
+        console.log('No items created')
         setLoading(false)
         return
       }
-      
+
       // Shuffle gap items
       const shuffled = [...items].sort(() => Math.random() - 0.5)
       setGapItems(shuffled)
@@ -184,25 +200,25 @@ const FillTheGaps = () => {
 
   const handleCheckAnswer = () => {
     if (!userAnswer.trim() || !currentGap) return
-    
+
     const comparison = compareAnswers(userAnswer, currentGap.correctWord)
     setResult(comparison)
     setSubmitted(true)
-    
+
     const flashcardId = currentGap.flashcardId
     const status = wordStatus[flashcardId] || { known: false, attempts: 0 }
-    
+
     if (comparison.isCorrect) {
       setCorrectCount(prev => prev + 1)
       status.known = true
-      
+
       // Update mastery
       const flashcard = flashcards.find(fc => fc.id === flashcardId)
       if (flashcard) {
         api.post(`/flashcards/${flashcardId}/update-mastery?mastery_level=${Math.min(100, (flashcard.mastery_level || 0) + 10)}`)
           .catch(console.error)
       }
-      
+
       // Track test results
       if (testMode) {
         setTestResults(prev => [...prev, { flashcardId, correct: true }])
@@ -210,22 +226,22 @@ const FillTheGaps = () => {
     } else {
       setIncorrectCount(prev => prev + 1)
       status.attempts = (status.attempts || 0) + 1
-      
+
       // Track test results
       if (testMode) {
         setTestResults(prev => [...prev, { flashcardId, correct: false }])
       }
     }
-    
+
     setWordStatus(prev => ({ ...prev, [flashcardId]: status }))
   }
 
   const handleContinue = () => {
     if (!currentGap) return
-    
+
     const flashcardId = currentGap.flashcardId
     const status = wordStatus[flashcardId]
-    
+
     if (result?.isCorrect) {
       // Remove gap from deck
       const newGaps = gapItems.filter((_, i) => i !== currentIndex)
@@ -233,7 +249,7 @@ const FillTheGaps = () => {
         setCompleted(true)
         return
       }
-      
+
       // Adjust index
       const newIndex = currentIndex >= newGaps.length ? newGaps.length - 1 : currentIndex
       setGapItems(newGaps)
@@ -244,7 +260,7 @@ const FillTheGaps = () => {
       const newGaps = [...gapItems]
       newGaps.splice(insertPosition, 0, currentGap)
       setGapItems(newGaps)
-      
+
       // Move to next
       if (currentIndex < gapItems.length - 1) {
         setCurrentIndex(currentIndex + 1)
@@ -252,7 +268,7 @@ const FillTheGaps = () => {
         setCurrentIndex(0)
       }
     }
-    
+
     // Reset state
     setUserAnswer('')
     setSubmitted(false)
@@ -265,11 +281,11 @@ const FillTheGaps = () => {
     status.attempts = (status.attempts || 0) + 1
     setWordStatus(prev => ({ ...prev, [flashcardId]: status }))
     setIncorrectCount(prev => prev + 1)
-    
+
     if (testMode) {
       setTestResults(prev => [...prev, { flashcardId, correct: false }])
     }
-    
+
     handleContinue()
   }
 
@@ -287,7 +303,7 @@ const FillTheGaps = () => {
     setUserAnswer('')
     setSubmitted(false)
     setResult(null)
-    
+
     // Reshuffle
     const shuffled = [...gapItems].sort(() => Math.random() - 0.5)
     setGapItems(shuffled)
@@ -335,7 +351,7 @@ const FillTheGaps = () => {
     const totalAttempts = Object.values(wordStatus).reduce((sum, s) => sum + s.attempts, 0)
     const avgAttempts = totalSentences > 0 ? (totalAttempts / totalSentences).toFixed(1) : 0
     const accuracy = totalSentences > 0 ? (correctCount / (correctCount + incorrectCount)) * 100 : 0
-    
+
     if (testMode) {
       return (
         <div className="p-4">
@@ -359,13 +375,13 @@ const FillTheGaps = () => {
         </div>
       )
     }
-    
+
     return (
       <div className="p-4">
         <div className="card text-center py-12">
           <Trophy size={64} className="mx-auto mb-4 text-yellow-500" />
           <h2 className="text-2xl font-bold mb-2">Fill the Gaps Complete!</h2>
-          
+
           <div className="mt-6 space-y-2 text-left max-w-md mx-auto">
             <div className="flex justify-between">
               <span className="text-slate-600 dark:text-slate-400">Total sentences completed:</span>
@@ -406,9 +422,9 @@ const FillTheGaps = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-[100dvh] flex flex-col overflow-hidden bg-gray-50 dark:bg-slate-900">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-slate-700">
+      <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex-shrink-0">
         <div className="flex items-center justify-between mb-2">
           <button
             onClick={() => navigate(`/plans/${planId}`)}
@@ -416,14 +432,14 @@ const FillTheGaps = () => {
           >
             <ArrowLeft size={24} />
           </button>
-          
+
           <div className="text-sm">
             <span className="font-medium">Sentence {currentIndex + 1} / {gapItems.length}</span>
           </div>
-          
+
           <div className="w-8" />
         </div>
-        
+
         <div className="flex justify-center gap-6 text-sm mt-2">
           <span className="text-green-600 dark:text-green-400">✓ {correctCount}</span>
           <span className="text-red-600 dark:text-red-400">✗ {incorrectCount}</span>
@@ -431,13 +447,13 @@ const FillTheGaps = () => {
       </div>
 
       {/* Question Card */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className="card max-w-2xl mx-auto">
+      <div className="flex-1 p-4 overflow-y-auto flex items-center justify-center">
+        <div className="card max-w-2xl w-full mx-auto">
           {/* Context Hint */}
           <div className="text-sm text-slate-500 dark:text-slate-400 mb-4 text-center">
             Translation: {currentGap?.hint}
           </div>
-          
+
           {/* Sentence with Gap */}
           <div className="text-center mb-6">
             <div className="text-xl font-medium mb-4 leading-relaxed">
@@ -459,7 +475,7 @@ const FillTheGaps = () => {
               type="text"
               value={userAnswer}
               onChange={(e) => setUserAnswer(e.target.value)}
-              onKeyPress={(e) => {
+              onKeyDown={(e) => {
                 if (e.key === 'Enter' && !submitted && userAnswer.trim()) {
                   handleCheckAnswer()
                 }
@@ -498,7 +514,7 @@ const FillTheGaps = () => {
                   <div className="text-xl font-semibold text-red-600 dark:text-red-400 mb-4">
                     Not quite
                   </div>
-                  
+
                   {/* Character-by-character comparison */}
                   <div className="text-left space-y-3">
                     <div>
@@ -520,7 +536,7 @@ const FillTheGaps = () => {
                         ))}
                       </div>
                     </div>
-                    
+
                     <div>
                       <div className="text-sm font-medium mb-1 text-slate-600 dark:text-slate-400">
                         Correct answer:
@@ -540,7 +556,7 @@ const FillTheGaps = () => {
                         ))}
                       </div>
                     </div>
-                    
+
                     <div>
                       <div className="text-sm font-medium mb-1 text-slate-600 dark:text-slate-400">
                         Complete sentence:
@@ -567,7 +583,7 @@ const FillTheGaps = () => {
       </div>
 
       {/* Controls */}
-      <div className="p-4 border-t border-gray-200 dark:border-slate-700 space-y-3">
+      <div className="p-4 border-t border-gray-200 dark:border-slate-700 space-y-3 bg-white dark:bg-slate-800 flex-shrink-0">
         {!submitted ? (
           <button
             onClick={handleCheckAnswer}

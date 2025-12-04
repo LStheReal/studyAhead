@@ -1,18 +1,27 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
-import { ArrowLeft, Timer, RotateCcw, Trophy, Maximize2, Minimize2 } from 'lucide-react'
+import { ArrowLeft, Timer, RotateCcw, Trophy } from 'lucide-react'
 
 const MatchingGame = () => {
   const { planId } = useParams()
   const [searchParams] = useSearchParams()
-  const taskId = searchParams.get('taskId')
   const testMode = searchParams.get('testMode') === 'true'
   const navigate = useNavigate()
 
-  const [cards, setCards] = useState([]) // [{ id, text, type: 'term'|'def', pairId, state: 'default'|'selected'|'matched'|'wrong' }]
-  const [selectedCards, setSelectedCards] = useState([])
-  const [matchedPairs, setMatchedPairs] = useState([])
+  // Game State
+  const [queue, setQueue] = useState([]) // For UI and completion check
+  const queueRef = useRef([]) // For logic (source of truth to avoid race conditions)
+  // Columns now hold "slots". Each slot is an object or null.
+  // To ensure stability, we initialize with placeholders if needed.
+  const [leftSlots, setLeftSlots] = useState([])
+  const [rightSlots, setRightSlots] = useState([])
+
+  const [selectedCard, setSelectedCard] = useState(null)
+  const [failedPairIds, setFailedPairIds] = useState(new Set())
+  const [masteredCount, setMasteredCount] = useState(0)
+  const [totalPairs, setTotalPairs] = useState(0)
+
   const [loading, setLoading] = useState(true)
   const [completed, setCompleted] = useState(false)
 
@@ -22,9 +31,9 @@ const MatchingGame = () => {
   const [timerRunning, setTimerRunning] = useState(false)
   const timerRef = useRef(null)
 
-  // Game stats
-  const [attempts, setAttempts] = useState(0)
-  const [bestTime, setBestTime] = useState(null)
+  // Constants
+  const BOARD_SIZE = 5 // Number of pairs on board at once
+  const REFILL_THRESHOLD = 5 // Wait for ALL 5 slots to be empty before refilling
 
   useEffect(() => {
     fetchData()
@@ -54,110 +63,292 @@ const MatchingGame = () => {
   }
 
   const initializeGame = (flashcards) => {
-    // Take up to 8 pairs for the grid (16 cards total)
-    const gamePairs = flashcards.slice(0, 8)
+    const shuffledPairs = [...flashcards].sort(() => Math.random() - 0.5)
+    setTotalPairs(shuffledPairs.length)
 
-    const gameCards = []
-    gamePairs.forEach(pair => {
-      gameCards.push({
-        id: `term-${pair.id}`,
-        text: pair.front_text,
-        type: 'term',
-        pairId: pair.id,
-        state: 'default'
-      })
-      gameCards.push({
-        id: `def-${pair.id}`,
-        text: pair.back_text,
-        type: 'def',
-        pairId: pair.id,
-        state: 'default'
-      })
-    })
+    // We need to fill slots initially.
+    // If fewer pairs than BOARD_SIZE, we just fill what we can.
+    const initialBoardPairs = shuffledPairs.slice(0, BOARD_SIZE)
+    const remainingQueue = shuffledPairs.slice(BOARD_SIZE)
 
-    // Shuffle cards
-    const shuffled = gameCards.sort(() => Math.random() - 0.5)
+    // Create initial items
+    const leftItems = initialBoardPairs.map(p => ({
+      id: `term-${p.id}`,
+      text: p.front_text,
+      pairId: p.id,
+      type: 'term',
+      state: 'default'
+    }))
 
-    setCards(shuffled)
-    setMatchedPairs([])
-    setSelectedCards([])
-    setAttempts(0)
+    const rightItems = initialBoardPairs.map(p => ({
+      id: `def-${p.id}`,
+      text: p.back_text,
+      pairId: p.id,
+      type: 'def',
+      state: 'default'
+    }))
+
+    // Shuffle positions for the slots
+    // We want the slots to be random, so Term A is in slot 0, but Def A might be in slot 3.
+    // But we need to track which slot holds which card.
+
+    // Helper to pad with nulls if not enough items
+    const padSlots = (items) => {
+      const slots = [...items]
+      while (slots.length < BOARD_SIZE) {
+        slots.push(null)
+      }
+      return slots.sort(() => Math.random() - 0.5)
+    }
+
+    setLeftSlots(padSlots(leftItems))
+    setRightSlots(padSlots(rightItems))
+
+    setQueue(remainingQueue)
+    queueRef.current = remainingQueue
+    setFailedPairIds(new Set())
+    setMasteredCount(0)
+    setSelectedCard(null)
     setCompleted(false)
     setElapsedTime(0)
     setStartTime(Date.now())
     setTimerRunning(true)
   }
 
-  const handleCardClick = (card) => {
-    if (
-      completed ||
-      card.state === 'matched' ||
-      selectedCards.find(c => c.id === card.id) ||
-      selectedCards.length >= 2
-    ) return
+  const handleCardClick = (card, colType, slotIndex) => {
+    if (completed || !card || card.state !== 'default') return
 
-    const newSelected = [...selectedCards, card]
-    setSelectedCards(newSelected)
+    // If clicking the already selected card, deselect it
+    if (selectedCard?.id === card.id) {
+      setSelectedCard(null)
+      updateSlotState(colType, slotIndex, 'default')
+      return
+    }
 
-    // Update card state visually
-    setCards(prev => prev.map(c =>
-      c.id === card.id ? { ...c, state: 'selected' } : c
-    ))
+    // If no card selected, select this one
+    if (!selectedCard) {
+      setSelectedCard({ ...card, colType, slotIndex }) // Store location
+      updateSlotState(colType, slotIndex, 'selected')
+      return
+    }
 
-    if (newSelected.length === 2) {
-      setAttempts(prev => prev + 1)
-      checkMatch(newSelected)
+    // If clicking a card of the same type, switch selection
+    if (selectedCard.type === card.type) {
+      // Deselect previous
+      updateSlotState(selectedCard.colType, selectedCard.slotIndex, 'default')
+      // Select new
+      setSelectedCard({ ...card, colType, slotIndex })
+      updateSlotState(colType, slotIndex, 'selected')
+      return
+    }
+
+    // Two different cards selected - check match
+    checkMatch(selectedCard, { ...card, colType, slotIndex })
+  }
+
+  const updateSlotState = (colType, slotIndex, state) => {
+    if (colType === 'left') {
+      setLeftSlots(prev => prev.map((item, i) => i === slotIndex && item ? { ...item, state } : item))
+    } else {
+      setRightSlots(prev => prev.map((item, i) => i === slotIndex && item ? { ...item, state } : item))
     }
   }
 
-  const checkMatch = (selection) => {
-    const [card1, card2] = selection
+  const checkMatch = (card1, card2) => {
     const isMatch = card1.pairId === card2.pairId
 
     if (isMatch) {
-      // Handle correct match
-      setTimeout(() => {
-        setCards(prev => prev.map(c =>
-          c.id === card1.id || c.id === card2.id
-            ? { ...c, state: 'matched' }
-            : c
-        ))
-        setMatchedPairs(prev => [...prev, card1.pairId])
-        setSelectedCards([])
-
-        // Check win condition
-        if (matchedPairs.length + 1 === cards.length / 2) {
-          handleGameComplete()
-        }
-      }, 300)
+      handleCorrectMatch(card1, card2)
     } else {
-      // Handle mismatch
-      // Show error state briefly
-      setCards(prev => prev.map(c =>
-        c.id === card1.id || c.id === card2.id
-          ? { ...c, state: 'wrong' }
-          : c
-      ))
-
-      setTimeout(() => {
-        setCards(prev => prev.map(c =>
-          c.id === card1.id || c.id === card2.id
-            ? { ...c, state: 'default' }
-            : c
-        ))
-        setSelectedCards([])
-      }, 1000)
+      handleWrongMatch(card1, card2)
     }
   }
+
+  const handleCorrectMatch = (card1, card2) => {
+    const pairId = card1.pairId
+    const isRetry = failedPairIds.has(pairId)
+    const matchState = isRetry ? 'matched-retry' : 'matched-first'
+
+    updateSlotState(card1.colType, card1.slotIndex, matchState)
+    updateSlotState(card2.colType, card2.slotIndex, matchState)
+    setSelectedCard(null)
+
+    setTimeout(() => {
+      // Always count as mastered when matched correctly
+      // Even if it was wrong before, getting it right means it's learned
+      setMasteredCount(prev => prev + 1)
+
+      // Clear the matched slots
+      setLeftSlots(prev => prev.map((item, i) =>
+        (i === card1.slotIndex && card1.colType === 'left') || (i === card2.slotIndex && card2.colType === 'left')
+          ? null
+          : item
+      ))
+      setRightSlots(prev => prev.map((item, i) =>
+        (i === card1.slotIndex && card1.colType === 'right') || (i === card2.slotIndex && card2.colType === 'right')
+          ? null
+          : item
+      ))
+
+      // Check if we should refill
+      // We need to check the state AFTER clearing. 
+      // Since setState is async, we can't rely on leftSlots immediately.
+      // But we know we just cleared 1 slot in each column.
+      // So we can check the previous state or just pass a callback.
+      // Better: Use a separate effect or just check inside the setState callback? 
+      // No, let's just trigger a check function.
+      // We can pass the *current* state of slots to the check function by using the functional update pattern, 
+      // but that's tricky for triggering side effects.
+      // Instead, let's just assume we cleared them and check the *count* of nulls.
+      // We can count nulls in the *current* render cycle + 1 (the one we just made null).
+
+      // Actually, simpler: Just call batchRefill. It will check the slots.
+      // But batchRefill needs the updated state.
+      // So we'll use a useEffect to trigger refill if threshold is met.
+      // OR, we can pass the "next" state to batchRefill.
+
+      // Let's use a small timeout or just rely on the next render cycle?
+      // No, we want it to feel responsive.
+      // Let's force the refill logic to run after state update.
+      // We can use a useEffect on [leftSlots, rightSlots].
+
+    }, 1000) // Increased delay to 1s so user sees the color
+  }
+
+  // Effect to handle batch refilling
+  useEffect(() => {
+    if (loading || completed) return
+
+    const emptyLeftCount = leftSlots.filter(s => s === null).length
+    // const emptyRightCount = rightSlots.filter(s => s === null).length // Should be same
+
+    // Refill if:
+    // 1. Empty slots >= Threshold
+    // 2. OR Queue is empty (and we have empty slots) -> Wait, if queue is empty we can't refill.
+    //    But if queue has items and we have empty slots, we should refill eventually.
+    //    If queue is empty, we just wait for user to clear board.
+    // 3. OR Board is empty (e.g. 5 matches made, threshold might be 3, but if we cleared all 5 fast?)
+    //    Actually if emptyLeftCount >= REFILL_THRESHOLD, we refill.
+
+    // Also check if we have items in queue to refill with.
+    if (queueRef.current.length > 0 && emptyLeftCount >= REFILL_THRESHOLD) {
+      batchRefill()
+    } else if (queueRef.current.length > 0 && emptyLeftCount === BOARD_SIZE) {
+      // Special case: if board is completely empty but threshold wasn't triggered (e.g. threshold > board size? Impossible)
+      // Or if we just want to ensure we never have an empty board if queue exists.
+      batchRefill()
+    }
+  }, [leftSlots, rightSlots, completed, loading])
+
+  const batchRefill = () => {
+    // Find empty indices
+    const emptyLeftIndices = leftSlots.map((item, i) => item === null ? i : -1).filter(i => i !== -1)
+    const emptyRightIndices = rightSlots.map((item, i) => item === null ? i : -1).filter(i => i !== -1)
+
+    if (emptyLeftIndices.length === 0) return
+
+    const countToRefill = Math.min(emptyLeftIndices.length, queueRef.current.length)
+    if (countToRefill === 0) return
+
+    // Get pairs from queue
+    const newPairs = []
+    for (let i = 0; i < countToRefill; i++) {
+      newPairs.push(queueRef.current.shift())
+    }
+    setQueue([...queueRef.current]) // Sync UI queue
+
+    // Create cards
+    const newTerms = newPairs.map(p => ({
+      id: `term-${p.id}-${Date.now()}`,
+      text: p.front_text,
+      pairId: p.id,
+      type: 'term',
+      state: 'default'
+    }))
+
+    const newDefs = newPairs.map(p => ({
+      id: `def-${p.id}-${Date.now()}`,
+      text: p.back_text,
+      pairId: p.id,
+      type: 'def',
+      state: 'default'
+    }))
+
+    // Shuffle assignments
+    // We have `countToRefill` items and `countToRefill` (or more) empty slots.
+    // We should pick `countToRefill` slots from the available empty ones.
+    // Actually, we usually refill all empty slots if we have enough cards.
+    // So we take the first `countToRefill` empty indices.
+
+    // Shuffle the cards before placing them into the slots? 
+    // OR shuffle the slots?
+    // Let's shuffle the cards and place them into the available slots sequentially.
+    // But wait, if we always fill slot 0 then slot 1, it's predictable if we know which slot cleared.
+    // We want to randomize WHICH card goes into WHICH empty slot.
+    // Since we are filling ALL empty slots (up to count), we just need to shuffle the cards.
+    // But we also need to ensure that Term A and Def A don't necessarily go to the "same" relative slot index if possible?
+    // Actually, `emptyLeftIndices` are fixed positions (e.g. 0, 2, 4).
+    // If we shuffle `newTerms` and place them into 0, 2, 4.
+    // And shuffle `newDefs` and place them into 0, 2, 4.
+    // Then Term A might go to 0, Def A might go to 4. That is random. Good.
+
+    const shuffledTerms = [...newTerms].sort(() => Math.random() - 0.5)
+    const shuffledDefs = [...newDefs].sort(() => Math.random() - 0.5)
+
+    setLeftSlots(prev => {
+      const next = [...prev]
+      // We only fill `countToRefill` slots.
+      // If we have more empty slots than pairs (queue running out), we only fill some.
+      for (let i = 0; i < countToRefill; i++) {
+        const slotIndex = emptyLeftIndices[i]
+        next[slotIndex] = shuffledTerms[i]
+      }
+      return next
+    })
+
+    setRightSlots(prev => {
+      const next = [...prev]
+      for (let i = 0; i < countToRefill; i++) {
+        const slotIndex = emptyRightIndices[i]
+        next[slotIndex] = shuffledDefs[i]
+      }
+      return next
+    })
+  }
+
+  const handleWrongMatch = (card1, card2) => {
+    updateSlotState(card1.colType, card1.slotIndex, 'wrong')
+    updateSlotState(card2.colType, card2.slotIndex, 'wrong')
+
+    setFailedPairIds(prev => {
+      const newSet = new Set(prev)
+      newSet.add(card1.pairId)
+      newSet.add(card2.pairId)
+      return newSet
+    })
+
+    setTimeout(() => {
+      updateSlotState(card1.colType, card1.slotIndex, 'default')
+      updateSlotState(card2.colType, card2.slotIndex, 'default')
+      setSelectedCard(null)
+    }, 1000) // Increased delay for wrong match too
+  }
+
+
+  useEffect(() => {
+    // Check completion
+    // Completed if queue is empty AND all slots are empty AND we have mastered some pairs
+    const allLeftEmpty = leftSlots.every(s => s === null)
+    const allRightEmpty = rightSlots.every(s => s === null)
+
+    if (queue.length === 0 && allLeftEmpty && allRightEmpty && masteredCount > 0) {
+      handleGameComplete()
+    }
+  }, [queue.length, leftSlots, rightSlots, masteredCount])
 
   const handleGameComplete = () => {
     stopTimer()
     setCompleted(true)
-
-    // Save score if needed
-    if (testMode) {
-      // In test mode, we might want to track time taken
-    }
   }
 
   const stopTimer = () => {
@@ -197,20 +388,17 @@ const MatchingGame = () => {
 
           <div className="mt-6 space-y-2 text-left max-w-md mx-auto">
             <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Pairs matched:</span>
-              <span className="font-medium">{cards.length / 2}</span>
+              <span className="text-slate-600 dark:text-slate-400">Total Pairs:</span>
+              <span className="font-medium">{totalPairs}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Attempts needed:</span>
-              <span className="font-medium">{attempts}</span>
+              <span className="text-slate-600 dark:text-slate-400">Retries needed:</span>
+              <span className="font-medium">{failedPairIds.size}</span>
             </div>
           </div>
 
           <div className="flex gap-3 mt-8 justify-center">
-            <button
-              onClick={handleRestart}
-              className="btn-secondary"
-            >
+            <button onClick={handleRestart} className="btn-secondary">
               <RotateCcw size={20} className="inline mr-2" />
               Play Again
             </button>
@@ -218,7 +406,7 @@ const MatchingGame = () => {
               <button
                 onClick={() => {
                   if (window.testFlowCallback) {
-                    window.testFlowCallback({ mode: 'match', results: { time: elapsedTime, attempts } })
+                    window.testFlowCallback({ mode: 'match', results: { time: elapsedTime } })
                   }
                 }}
                 className="btn-primary"
@@ -226,10 +414,7 @@ const MatchingGame = () => {
                 Continue to Next Phase
               </button>
             ) : (
-              <button
-                onClick={() => navigate(`/plans/${planId}`)}
-                className="btn-primary"
-              >
+              <button onClick={() => navigate(`/plans/${planId}`)} className="btn-primary">
                 Back to Overview
               </button>
             )}
@@ -240,10 +425,10 @@ const MatchingGame = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-50 dark:bg-slate-900 overflow-hidden h-[100dvh] w-full pb-24 pt-4">
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-w-4xl mx-auto w-full">
           <button
             onClick={() => navigate(`/plans/${planId}`)}
             className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
@@ -252,8 +437,8 @@ const MatchingGame = () => {
           </button>
 
           <div className="flex items-center gap-2 font-mono text-xl font-bold text-slate-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-700 px-4 py-2 rounded-lg">
-            <Timer size={20} className="text-blue-500" />
-            {formatTime(elapsedTime)}
+            <Trophy size={20} className="text-yellow-500" />
+            {masteredCount} / {totalPairs}
           </div>
 
           <button
@@ -268,32 +453,70 @@ const MatchingGame = () => {
 
       {/* Game Grid */}
       <div className="flex-1 p-4 overflow-y-auto">
-        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-          {cards.map((card) => {
-            let cardClass = "aspect-[4/3] p-4 rounded-xl flex items-center justify-center text-center cursor-pointer transition-all duration-200 shadow-sm border-2 select-none text-sm md:text-base font-medium"
-
-            if (card.state === 'matched') {
-              cardClass += " opacity-0 pointer-events-none transform scale-90"
-            } else if (card.state === 'selected') {
-              cardClass += " bg-blue-50 dark:bg-blue-900/30 border-blue-500 text-blue-700 dark:text-blue-300 shadow-md transform -translate-y-1"
-            } else if (card.state === 'wrong') {
-              cardClass += " bg-red-50 dark:bg-red-900/30 border-red-500 text-red-700 dark:text-red-300 animate-shake"
-            } else {
-              cardClass += " bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 text-slate-700 dark:text-slate-200"
-            }
-
-            return (
-              <div
-                key={card.id}
-                className={cardClass}
-                onClick={() => handleCardClick(card)}
-              >
-                {card.text}
+        <div className="max-w-4xl mx-auto grid grid-cols-2 gap-4 md:gap-8 h-full content-start">
+          {/* Left Column - Terms */}
+          <div className="space-y-3">
+            {leftSlots.map((card, index) => (
+              <div key={`left-${index}`} className="h-[80px]">
+                {card && (
+                  <Card
+                    card={card}
+                    onClick={() => handleCardClick(card, 'left', index)}
+                  />
+                )}
               </div>
-            )
-          })}
+            ))}
+          </div>
+
+          {/* Right Column - Definitions */}
+          <div className="space-y-3">
+            {rightSlots.map((card, index) => (
+              <div key={`right-${index}`} className="h-[80px]">
+                {card && (
+                  <Card
+                    card={card}
+                    onClick={() => handleCardClick(card, 'right', index)}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+const Card = ({ card, onClick }) => {
+  let cardClass = "w-full h-full p-4 rounded-xl flex items-center justify-center text-center cursor-pointer transition-all duration-200 shadow-sm border-2 select-none text-sm md:text-base font-medium"
+
+  if (card.state === 'matched-first') {
+    cardClass += " bg-green-100 dark:bg-green-900/30 border-green-500 text-green-700 dark:text-green-300 transform scale-95"
+  } else if (card.state === 'matched-retry') {
+    cardClass += " bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 text-yellow-700 dark:text-yellow-300 transform scale-95"
+  } else if (card.state === 'selected') {
+    // Blue border only, no background change (or very subtle)
+    cardClass += " border-blue-500 border-2 shadow-md transform -translate-y-1"
+  } else if (card.state === 'wrong') {
+    cardClass += " bg-red-100 dark:bg-red-900/30 border-red-500 text-red-700 dark:text-red-300 animate-shake"
+  } else {
+    cardClass += " bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 text-slate-700 dark:text-slate-200"
+  }
+
+  return (
+    <div
+      className={cardClass}
+      onClick={onClick}
+      tabIndex={0}
+      role="button"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+    >
+      {card.text}
     </div>
   )
 }

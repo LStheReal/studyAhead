@@ -4,8 +4,8 @@ from typing import List
 from datetime import datetime
 from app.database import get_db
 from app.auth import get_current_user
-from app.models import User, StudyPlan, StudyPlanStatus, MaterialCategory, Flashcard
-from app.schemas import StudyPlanCreate, StudyPlanResponse
+from app.models import User, StudyPlan, StudyPlanStatus, MaterialCategory, Flashcard, MCQQuestion
+from app.schemas import StudyPlanCreate, StudyPlanResponse, FlashcardWithQuestions
 from app.ai_service import ai_service
 
 router = APIRouter()
@@ -200,3 +200,41 @@ async def approve_study_plan(
             detail=f"Failed to create pre-assessment task: {str(e)}"
         )
 
+@router.get("/{plan_id}/flashcards")
+async def get_plan_flashcards(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all flashcards for a study plan."""
+    plan = db.query(StudyPlan).filter(
+        StudyPlan.id == plan_id,
+        StudyPlan.user_id == current_user.id
+    ).first()
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Study plan not found")
+    
+    flashcards = db.query(Flashcard).filter(Flashcard.study_plan_id == plan_id).all()
+    return flashcards
+
+@router.get("/{plan_id}/quiz", response_model=List[FlashcardWithQuestions])
+async def get_plan_quiz(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all quiz questions for a study plan, grouped by flashcard."""
+    plan = db.query(StudyPlan).filter(
+        StudyPlan.id == plan_id,
+        StudyPlan.user_id == current_user.id
+    ).first()
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Study plan not found")
+    
+    # Get all flashcards for this plan with their questions
+    # SQLAlchemy will handle the relationship loading
+    flashcards = db.query(Flashcard).filter(Flashcard.study_plan_id == plan_id).all()
+    
+    return flashcards

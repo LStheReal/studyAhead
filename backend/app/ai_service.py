@@ -1,14 +1,20 @@
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from app.config import settings
+from app.mock_ai_service import mock_ai_service
 import json
 
 class AIService:
     """Abstraction layer for AI services. Can be swapped by changing API key."""
     
     def __init__(self):
-        self.client = OpenAI(api_key=settings.openai_api_key)
-        self.model = settings.openai_model
+        # Only initialize OpenAI if not using mock AI and key is present
+        if not settings.USE_MOCK_AI and settings.OPENAI_API_KEY:
+            self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            self.model = "gpt-4o" # Default model
+        else:
+            self.client = None
+            self.model = None
     
     def analyze_material(
         self, 
@@ -16,6 +22,9 @@ class AIService:
         material_type: str = "text"
     ) -> Dict[str, Any]:
         """Analyze uploaded material and categorize it."""
+        if settings.USE_MOCK_AI:
+            return mock_ai_service.analyze_material(content)
+
         prompt = f"""Analyze the following study material and provide a structured analysis.
 
 Material:
@@ -53,6 +62,13 @@ Be thorough and accurate. For vocabulary materials, identify language pairs if p
         count: int = 30
     ) -> List[Dict[str, Any]]:
         """Generate flashcards from material summary."""
+        # Note: This method seems to be generic. For vocabulary, generate_vocabulary_flashcards is preferred.
+        # If called for vocabulary, we redirect or handle appropriately.
+        
+        if settings.USE_MOCK_AI:
+             # For generic flashcards, we can reuse the vocabulary mock for now or extend it
+             return mock_ai_service.generate_vocabulary_flashcards("mock content", count)
+
         category = material_summary.get("category", "other")
         
         if category == "vocabulary":
@@ -144,6 +160,9 @@ Return a JSON object with a "flashcards" array:
         answer_language: str
     ) -> List[Dict[str, Any]]:
         """Generate vocabulary flashcards with proper language mapping."""
+        if settings.USE_MOCK_AI:
+            return mock_ai_service.generate_vocabulary_flashcards(text_content)
+
         prompt = f"""Generate flashcards for ALL vocabulary pairs found in this material:
 
 Title: {material_summary.get('title', '')}
@@ -210,11 +229,15 @@ Return a JSON object with a "flashcards" array:
         question_language: str,
         answer_language: str
     ) -> List[Dict[str, Any]]:
-        """Generate 3 MCQ questions for a vocabulary word:
-        1. Standard: What does 'front_text' mean in answer_language?
-        2. Reverse: What does 'back_text' mean in question_language?
-        3. Creative: Contextual usage question
-        """
+        """Generate 3 MCQ questions for a vocabulary word."""
+        # Note: This method seems redundant with generate_mcq_questions below, but keeping for compatibility
+        if settings.USE_MOCK_AI:
+            return mock_ai_service.generate_mcq_questions(
+                {"front_text": front_text, "back_text": back_text}, 
+                question_language, 
+                answer_language
+            )
+
         prompt = f"""Generate exactly 3 multiple-choice questions for this vocabulary pair:
 
 Word in {question_language}: {front_text}
@@ -277,6 +300,9 @@ Return JSON object:
         count: int = 5
     ) -> List[Dict[str, Any]]:
         """Generate example sentences in target language containing the vocabulary word."""
+        if settings.USE_MOCK_AI:
+            return mock_ai_service.generate_vocabulary_sentences(front_text, back_text)
+
         prompt = f"""Generate {count} example sentences in {target_language} using this vocabulary word:
 
 Word: {front_text}
@@ -320,6 +346,9 @@ Return JSON:
         answer_language: str
     ) -> List[Dict[str, Any]]:
         """Generate 3 MCQ questions per flashcard (standard, reverse, creative)."""
+        if settings.USE_MOCK_AI:
+            return mock_ai_service.generate_mcq_questions(flashcard, question_language, answer_language)
+
         front = flashcard.get("front_text", "")
         back = flashcard.get("back_text", "")
         
@@ -375,6 +404,38 @@ Return JSON:
         test_results: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """Generate adaptive study schedule using pre-assessment test results."""
+        if settings.USE_MOCK_AI:
+            # Return a simple mock schedule
+            return [
+                {
+                    "title": "Initial Vocabulary Review",
+                    "type": "flashcard_review",
+                    "mode": "learn",
+                    "estimated_minutes": 15,
+                    "day_number": 1,
+                    "rationale": "Start by learning the new vocabulary.",
+                    "order": 1
+                },
+                {
+                    "title": "Vocabulary Quiz",
+                    "type": "multiple_choice_quiz",
+                    "mode": "quiz",
+                    "estimated_minutes": 10,
+                    "day_number": 1,
+                    "rationale": "Test your knowledge of the new words.",
+                    "order": 2
+                },
+                {
+                    "title": "Fill the Gaps Practice",
+                    "type": "fill_the_gap",
+                    "mode": "fill_gaps",
+                    "estimated_minutes": 15,
+                    "day_number": 2,
+                    "rationale": "Practice using words in context.",
+                    "order": 1
+                }
+            ]
+
         exam_date = study_plan.get("exam_date")
         learning_speed = user_preferences.get("learning_speed", "moderate")
         study_hours = user_preferences.get("study_hours_per_week", 10)
@@ -455,6 +516,9 @@ Return JSON:
     
     def extract_text_from_image(self, image_path: str) -> str:
         """Extract text from image using vision API."""
+        if settings.USE_MOCK_AI:
+            return mock_ai_service.extract_text_from_image(b"")
+
         import base64
         from PIL import Image
         import pillow_heif
@@ -525,6 +589,9 @@ Return JSON:
     
     def process_pdf_content(self, pdf_text: str) -> Dict[str, Any]:
         """Process PDF content and extract structured information."""
+        if settings.USE_MOCK_AI:
+            return mock_ai_service.analyze_material(pdf_text)
+
         prompt = f"""Process this PDF content and extract:
 
 {pdf_text[:12000]}

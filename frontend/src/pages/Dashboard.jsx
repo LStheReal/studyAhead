@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
 import { format, differenceInDays } from 'date-fns'
-import { 
-  BookOpen, 
-  TrendingUp, 
-  Target, 
-  Calendar, 
+import {
+  BookOpen,
+  TrendingUp,
+  Target,
+  Calendar,
   Clock,
   CheckCircle2,
   AlertCircle
@@ -42,15 +42,15 @@ const Dashboard = () => {
   }
 
   const getStatusBadge = (plan) => {
-    const daysRemaining = plan.exam_date 
+    const daysRemaining = plan.exam_date
       ? differenceInDays(new Date(plan.exam_date), new Date())
       : null
-    
+
     if (!daysRemaining) return null
-    
+
     const progressRatio = plan.progress_percentage / 100
     const expectedProgress = 1 - (daysRemaining / (daysRemaining + (plan.tasks_completed || 1)))
-    
+
     if (progressRatio >= expectedProgress * 0.9) {
       return <span className="badge badge-success">On Track</span>
     } else if (progressRatio >= expectedProgress * 0.7) {
@@ -76,9 +76,14 @@ const Dashboard = () => {
     <div className="p-4 space-y-6">
       {/* Header Card */}
       <div className="card bg-gradient-primary text-white">
-        <h2 className="text-xl font-semibold mb-1">
-          {getGreeting()}, {user?.first_name || 'there'}!
-        </h2>
+        <div className="flex items-center gap-3 mb-1">
+          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm p-1.5">
+            <img src="/logo.png" alt="StudyAhead" className="w-full h-full object-contain" />
+          </div>
+          <h2 className="text-xl font-semibold">
+            {getGreeting()}, {user?.first_name || 'there'}!
+          </h2>
+        </div>
         <div className="grid grid-cols-3 gap-4 mt-4">
           <div>
             <div className="text-2xl font-bold">{stats.total_study_plans}</div>

@@ -1,26 +1,34 @@
-from pydantic_settings import BaseSettings
-from typing import Optional
+import os
+from dotenv import load_dotenv
 
-class Settings(BaseSettings):
-    # OpenAI Configuration
-    openai_api_key: str
-    openai_model: str = "gpt-4-turbo-preview"
+load_dotenv()
+
+class Settings:
+    PROJECT_NAME: str = "StudyAhead"
+    PROJECT_VERSION: str = "1.0.0"
     
-    # JWT Configuration
-    secret_key: str
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
+    POSTGRES_SERVER: str = os.getenv("POSTGRES_SERVER", "localhost")
+    POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")
+    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "studyahead")
+    
+    secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-here")
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 1440
+    access_token_expire_minutes: int = 30
     
-    # Database
-    database_url: str = "sqlite:///./studyahead.db"
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
     
-    # File Upload
-    max_upload_size: int = 10485760  # 10MB
-    upload_dir: str = "./uploads"
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # Mock AI Configuration
+    # Default to True if OPENAI_API_KEY is missing or if explicitly set
+    USE_MOCK_AI: bool = os.getenv("USE_MOCK_AI", "True").lower() == "true"
+
+    @property
+    def database_url(self) -> str:
+        return os.getenv("DATABASE_URL", "sqlite:///./studyahead.db")
+
+    @property
+    def upload_dir(self) -> str:
+        return os.getenv("UPLOAD_DIR", "./uploads")
 
 settings = Settings()
-

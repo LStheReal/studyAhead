@@ -371,7 +371,7 @@ const WritingPractice = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-50 dark:bg-slate-900 overflow-hidden h-[100dvh] w-full pb-24 pt-4">
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
         <div className="flex items-center justify-between mb-2">
@@ -422,20 +422,22 @@ const WritingPractice = () => {
                 type="text"
                 value={userAnswer}
                 onChange={(e) => setUserAnswer(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter' && !submitted && userAnswer.trim()) {
-                    handleCheckAnswer()
-                  } else if (e.key === 'Enter' && submitted) {
-                    handleContinue()
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (!submitted && userAnswer.trim()) {
+                      handleCheckAnswer()
+                    } else if (submitted) {
+                      handleContinue()
+                    }
                   }
                 }}
                 placeholder="Type the answer..."
                 disabled={submitted}
                 className={`w-full px-6 py-4 text-xl md:text-2xl text-center border-b-4 bg-transparent focus:outline-none transition-all ${submitted
-                    ? result?.isCorrect
-                      ? 'border-green-500 text-green-600'
-                      : 'border-red-500 text-red-600'
-                    : 'border-gray-300 dark:border-slate-600 focus:border-blue-500 text-slate-800 dark:text-white'
+                  ? result?.isCorrect
+                    ? 'border-green-500 text-green-600'
+                    : 'border-red-500 text-red-600'
+                  : 'border-gray-300 dark:border-slate-600 focus:border-blue-500 text-slate-800 dark:text-white'
                   }`}
                 autoComplete="off"
                 autoCorrect="off"

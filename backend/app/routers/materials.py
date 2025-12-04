@@ -29,16 +29,27 @@ async def process_materials_background(
 ):
     """Background task to process materials and generate flashcards."""
     from app.database import SessionLocal
-    db = SessionLocal()
     
-    try:
+    # Initialize variables before try block to avoid UnboundLocalError
+    success = False
+    flashcard_count = 0
+    error_message = None
+    
+    # 1. Initial Check & Setup (Quick DB op)
+    print(f"[STEP 1/7] Starting material processing for plan {study_plan_id}")
+    with SessionLocal() as db:
         plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
         if not plan:
+            print(f"Plan {study_plan_id} not found, aborting.")
             return
-        
-        # Combine all text content
+        # We don't keep the plan object bound to session after this block
+        # but we might need some info like languages.
+        question_language = plan.question_language or "English"
+        answer_language = plan.answer_language or "English"
+
+    try:
+        # 2. Extract Text (No DB)
         combined_text = text_content or ""
-        print(f"Starting material processing for plan {study_plan_id}")
         print(f"Initial text content length: {len(combined_text)}")
         
         if file_paths:
@@ -51,182 +62,189 @@ async def process_materials_background(
                     with pdfplumber.open(file_path) as pdf:
                         pdf_text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
                         combined_text += "\n\n" + pdf_text
-                        print(f"Extracted {len(pdf_text)} characters from PDF")
+                        print(f"  Extracted {len(pdf_text)} characters from PDF")
                 
                 elif file_ext in [".jpg", ".jpeg", ".png", ".heic"]:
-                    # Extract text from image
+                    # Extract text from image using AI
                     try:
-                        if file_ext == ".heic":
-                            heif_file = pillow_heif.open_heif(file_path)
-                            image = Image.frombytes(
-                                heif_file.mode,
-                                heif_file.size,
-                                heif_file.data,
-                                "raw"
-                            )
-                        else:
-                            image = Image.open(file_path)
-                        
-                        print(f"Extracting text from image using AI vision...")
-                        # Use AI vision to extract text
-                        image_text = ai_service.extract_text_from_image(str(file_path))
+                        image_text = ai_service.extract_text_from_image(file_path)
                         combined_text += "\n\n" + image_text
-                        print(f"Extracted {len(image_text)} characters from image")
+                        print(f"  Extracted {len(image_text)} characters from image")
                     except Exception as e:
                         import traceback
-                        print(f"Error processing image {file_path}: {e}")
+                        print(f"  Error processing image {file_path}: {e}")
                         print(traceback.format_exc())
         
-        print(f"Total combined text length: {len(combined_text)}")
+        print(f"  Total combined text length: {len(combined_text)}")
         
         if not combined_text.strip():
-            print(f"Warning: No text content extracted for plan {study_plan_id}")
-            plan.status = StudyPlanStatus.AWAITING_APPROVAL
-            db.commit()
+            print(f"  Warning: No text content extracted for plan {study_plan_id}")
+            with SessionLocal() as db:
+                plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
+                if plan:
+                    plan.status = StudyPlanStatus.AWAITING_APPROVAL
+                    db.commit()
             return
         
-        # Analyze material
+        # 3. Analyze Material (AI - Slow, No DB)
+        print("[STEP 3/7] Analyzing material with AI...")
         analysis = ai_service.analyze_material(combined_text)
         
-        # Check category - only vocabulary is supported
+        # Check category
         category = analysis.get("category", "other")
         if category != "vocabulary":
-            # Set error status and save category for error message
-            plan.status = StudyPlanStatus.AWAITING_APPROVAL
-            db.commit()
-            # Don't raise here - let status endpoint handle the error display
-            print(f"ERROR: Category '{category}' not supported. Only vocabulary is supported.")
-            return
+            print(f"  ERROR: Category '{category}' not supported. Only vocabulary is supported.")
+            with SessionLocal() as db:
+                plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
+                if plan:
+                    plan.status = StudyPlanStatus.AWAITING_APPROVAL
+                    # We could store the error in a field if we had one, or rely on the category check in status endpoint
+                    # But we need to save the summary to show the error
+                    db.commit()
+            raise ValueError(f"Category '{category}' not supported")
         
-        # Create material summary
-        summary = MaterialSummary(
-            study_plan_id=study_plan_id,
-            title=analysis.get("title", "Untitled Material"),
-            category=MaterialCategory.VOCABULARY,
-            main_topics=analysis.get("main_topics", []),
-            learning_goals=analysis.get("learning_goals", []),
-            recommended_study_approach=analysis.get("recommended_study_approach"),
-            checklist_items=analysis.get("checklist_items", []),
-            content_structure=analysis.get("content_structure"),
-            difficulty_assessment=analysis.get("difficulty_assessment")
-        )
-        db.add(summary)
-        db.commit()
-        db.refresh(summary)
+        print(f"  Category: {category}")
+        print(f"  Flashcard count: {len(analysis.get('flashcards', []))}")
         
-        # Get plan to access language settings
-        plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
-        question_language = plan.question_language or "English"
-        answer_language = plan.answer_language or "English"
-        
-        # Generate vocabulary flashcards with proper language mapping
-        flashcard_data = ai_service.generate_vocabulary_flashcards(
-            analysis, 
-            combined_text,
-            question_language=question_language,
-            answer_language=answer_language
-        )
-        
-        if not flashcard_data or len(flashcard_data) == 0:
-            print(f"Warning: No flashcards generated for plan {study_plan_id}")
-            plan.status = StudyPlanStatus.AWAITING_APPROVAL
-            db.commit()
-            return
-        
-        flashcard_count = 0
-        from app.models import MCQQuestion, VocabularySentence
-        
-        for fc_data in flashcard_data:
-            front_text = fc_data.get("front_text", "").strip()
-            back_text = fc_data.get("back_text", "").strip()
+        # 4. Save Material Summary (Quick DB op)
+        print("[STEP 4/7] Creating material summary...")
+        with SessionLocal() as db:
+            # Check if summary already exists (for idempotency)
+            existing_summary = db.query(MaterialSummary).filter(
+                MaterialSummary.study_plan_id == study_plan_id
+            ).first()
             
-            # Skip empty flashcards
-            if not front_text or not back_text:
-                continue
+            if existing_summary:
+                print(f"  Material summary already exists for plan {study_plan_id}, reusing it")
+                summary_id = existing_summary.id
+            else:
+                summary = MaterialSummary(
+                    study_plan_id=study_plan_id,
+                    category=MaterialCategory(category),
+                    topic=analysis.get("topic", ""),
+                    key_concepts=analysis.get("key_concepts", []),
+                    difficulty_level=analysis.get("difficulty_level", "intermediate"),
+                    estimated_study_time=analysis.get("estimated_study_time", 60)
+                )
+                db.add(summary)
+                db.commit()
+                db.refresh(summary)
+                summary_id = summary.id
+                print(f"  Created material summary with ID: {summary_id}")
+            
+            # Update plan category
+            plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
+            if plan:
+                plan.category = MaterialCategory(category)
+                db.commit()
+        
+        # 5. Check if flashcards already exist (for idempotency)
+        print("[STEP 5/7] Checking for existing flashcards...")
+        with SessionLocal() as db:
+            existing_flashcards = db.query(Flashcard).filter(
+                Flashcard.study_plan_id == study_plan_id
+            ).count()
+            
+            if existing_flashcards > 0:
+                print(f"  Flashcards already exist for plan {study_plan_id} (count: {existing_flashcards}), skipping generation")
+                flashcard_count = existing_flashcards
+                success = True
+                return
+        
+        # 6. Generate Flashcards with MCQs and Sentences (AI - Slow, then DB)
+        print("[STEP 6/7] Generating flashcards with MCQs and sentences...")
+        flashcard_data = analysis.get("flashcards", [])
+        
+        if flashcard_data:
+            for idx, card_data in enumerate(flashcard_data, 1):
+                front = card_data.get("front", "").strip()
+                back = card_data.get("back", "").strip()
                 
-            # Create flashcard
-            flashcard = Flashcard(
-                study_plan_id=study_plan_id,
-                material_summary_id=summary.id,
-                front_text=front_text,
-                back_text=back_text,
-                difficulty=fc_data.get("difficulty", "medium")
-            )
-            db.add(flashcard)
-            db.flush()  # Flush to get flashcard.id
-            
-            # Generate 3 MCQ questions for this vocabulary
-            mcq_data = ai_service.generate_vocabulary_mcqs(
-                front_text, 
-                back_text,
-                question_language,
-                answer_language
-            )
-            
-            for mcq in mcq_data:
-                mcq_question = MCQQuestion(
-                    flashcard_id=flashcard.id,
-                    question_text=mcq.get("question_text", ""),
-                    options=mcq.get("options", []),
-                    correct_answer_index=mcq.get("correct_answer_index", 0),
-                    rationale=mcq.get("rationale", ""),
-                    question_type=mcq.get("question_type", "standard")
-                )
-                db.add(mcq_question)
-            
-            # Generate 5 example sentences in answer language
-            sentences_data = ai_service.generate_vocabulary_sentences(
-                front_text,
-                back_text,
-                answer_language,
-                count=5
-            )
-            
-            for sent_data in sentences_data:
-                sentence = VocabularySentence(
-                    flashcard_id=flashcard.id,
-                    sentence_text=sent_data.get("sentence_text", ""),
-                    highlighted_words=sent_data.get("highlighted_words", [])
-                )
-                db.add(sentence)
-            
-            flashcard_count += 1
+                if not front or not back:
+                    print(f"  Skipping empty flashcard {idx}")
+                    continue
+                
+                print(f"  Processing flashcard {idx}/{len(flashcard_data)}: '{front}' -> '{back}'")
+                
+                with SessionLocal() as db:
+                    # Create flashcard
+                    flashcard = Flashcard(
+                        study_plan_id=study_plan_id,
+                        front=front,
+                        back=back,
+                        difficulty=card_data.get("difficulty", "medium")
+                    )
+                    db.add(flashcard)
+                    db.commit()
+                    db.refresh(flashcard)
+                    
+                    # Generate MCQs
+                    print(f"    Generating MCQs for flashcard {idx}...")
+                    mcqs = ai_service.generate_mcq_for_flashcard(
+                        front, back, question_language, answer_language
+                    )
+                    
+                    for mcq_data in mcqs[:3]:  # Limit to 3 MCQs
+                        mcq = MCQQuestion(
+                            flashcard_id=flashcard.id,
+                            question_text=mcq_data.get("question_text", ""),
+                            options=mcq_data.get("options", []),
+                            correct_answer=mcq_data.get("correct_answer", 0),
+                            question_type=mcq_data.get("question_type", "standard")
+                        )
+                        db.add(mcq)
+                    
+                    # Generate sentences
+                    print(f"    Generating example sentences for flashcard {idx}...")
+                    sentences = ai_service.generate_sentences_for_flashcard(
+                        front, back, answer_language
+                    )
+                    
+                    for sent_data in sentences[:5]:  # Limit to 5 sentences
+                        sentence = VocabularySentence(
+                            flashcard_id=flashcard.id,
+                            sentence_text=sent_data.get("sentence_text", ""),
+                            highlighted_words=sent_data.get("highlighted_words", [])
+                        )
+                        db.add(sentence)
+                    
+                    db.commit()
+                    flashcard_count += 1
         
         if flashcard_count == 0:
-            print(f"Warning: All flashcards were empty for plan {study_plan_id}")
-            plan.status = StudyPlanStatus.AWAITING_APPROVAL
-            db.commit()
-            return
-        
-        db.commit()
-        print(f"Successfully created {flashcard_count} flashcards with MCQs and sentences for plan {study_plan_id}")
-        
-        # Update plan status
-        plan.status = StudyPlanStatus.AWAITING_APPROVAL
-        plan.category = summary.category
-        db.commit()
+            print(f"  Warning: All flashcards were empty for plan {study_plan_id}")
+            # Fall through to final status update
+            
+        print(f"[STEP 7/7] Successfully created {flashcard_count} flashcards with MCQs and sentences for plan {study_plan_id}")
+        success = True
         
     except ValueError as e:
         # Category not supported error
+        error_message = str(e)
         import traceback
         print(f"Category error in background processing: {e}")
         print(traceback.format_exc())
-        plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
-        if plan:
-            plan.status = StudyPlanStatus.AWAITING_APPROVAL
-            db.commit()
-        # Re-raise to be caught by status endpoint
-        raise
     except Exception as e:
+        error_message = str(e)
         import traceback
         print(f"Error in background processing: {e}")
         print(traceback.format_exc())
-        plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
-        if plan:
-            plan.status = StudyPlanStatus.AWAITING_APPROVAL
-            db.commit()
     finally:
-        db.close()
+        # ALWAYS update status, even if there was an error
+        print(f"[FINAL] Updating final status for plan {study_plan_id} (success={success}, flashcards={flashcard_count})")
+        try:
+            with SessionLocal() as db:
+                plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
+                if plan:
+                    plan.status = StudyPlanStatus.AWAITING_APPROVAL
+                    db.commit()
+                    print(f"  Status updated to AWAITING_APPROVAL")
+                else:
+                    print(f"  ERROR: Plan {study_plan_id} not found for final status update")
+        except Exception as final_error:
+            print(f"  CRITICAL ERROR updating final status: {final_error}")
+            import traceback
+            traceback.print_exc()
 
 @router.post("/upload")
 async def upload_materials(

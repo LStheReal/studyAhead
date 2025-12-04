@@ -140,7 +140,7 @@ async def generate_vocabulary_sentences(
     if not flashcard:
         raise HTTPException(status_code=404, detail="Flashcard not found")
     
-    if flashcard.study_plan.category != "vocabulary":
+    if str(flashcard.study_plan.category).lower() != "vocabulary":
         raise HTTPException(status_code=400, detail="Sentences only available for vocabulary")
     
     # Generate sentences
@@ -262,4 +262,39 @@ async def update_flashcard_mastery(
     
     db.commit()
     return {"message": "Mastery updated"}
+
+@router.get("/study-plan/{plan_id}/sentences")
+async def get_study_plan_sentences(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all vocabulary sentences for a study plan."""
+    # Verify plan ownership
+    plan = db.query(StudyPlan).filter(
+        StudyPlan.id == plan_id,
+        StudyPlan.user_id == current_user.id
+    ).first()
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Study plan not found")
+        
+    # Get all sentences for flashcards in this plan
+    sentences = db.query(VocabularySentence).join(Flashcard).filter(
+        Flashcard.study_plan_id == plan_id
+    ).all()
+    
+    # Group by flashcard_id
+    result = {}
+    for s in sentences:
+        if s.flashcard_id not in result:
+            result[s.flashcard_id] = []
+        
+        result[s.flashcard_id].append({
+            "id": s.id,
+            "sentence_text": s.sentence_text,
+            "highlighted_words": s.highlighted_words or []
+        })
+        
+    return result
 

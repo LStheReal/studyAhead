@@ -22,6 +22,8 @@ const StudyPlanDetail = () => {
   const [tasks, setTasks] = useState([])
   const [flashcards, setFlashcards] = useState([])
   const [loading, setLoading] = useState(true)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     fetchPlanDetails()
@@ -49,6 +51,19 @@ const StudyPlanDetail = () => {
       navigate(`/study/${id}/${mode}?taskId=${taskId}`)
     } else {
       navigate(`/study/${id}/${mode}`)
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      await api.delete(`/study-plans/${id}`)
+      navigate('/plans')
+    } catch (error) {
+      console.error('Failed to delete plan:', error)
+      alert('Failed to delete plan. Please try again.')
+      setDeleting(false)
+      setShowDeleteConfirm(false)
     }
   }
 
@@ -88,6 +103,34 @@ const StudyPlanDetail = () => {
 
   return (
     <div className="p-4 space-y-6">
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="card max-w-md w-full p-6">
+            <h3 className="text-xl font-bold mb-2">Delete Study Plan?</h3>
+            <p className="text-slate-600 dark:text-slate-400 mb-6">
+              Are you sure you want to delete "{plan.name}"? This will permanently delete all flashcards, tasks, and progress. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-4 mb-4">
         <button
@@ -154,17 +197,16 @@ const StudyPlanDetail = () => {
         <div className="grid grid-cols-2 gap-3">
           {studyModes.map((mode) => {
             const Icon = mode.icon
-            const isAvailable = plan.category === 'vocabulary' || !['fill_gaps'].includes(mode.id)
+            const isAvailable = plan.category?.toLowerCase() === 'vocabulary'
             return (
               <button
                 key={mode.id}
                 onClick={() => isAvailable && handleStartMode(mode.id)}
                 disabled={!isAvailable}
-                className={`p-4 border rounded-lg text-left transition-colors ${
-                  isAvailable
-                    ? 'border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer'
-                    : 'border-gray-100 dark:border-slate-800 opacity-50 cursor-not-allowed'
-                }`}
+                className={`p-4 border rounded-lg text-left transition-colors ${isAvailable
+                  ? 'border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer'
+                  : 'border-gray-100 dark:border-slate-800 opacity-50 cursor-not-allowed'
+                  }`}
               >
                 <Icon size={24} className="mb-2 text-blue-500" />
                 <div className="font-medium text-sm">{mode.name}</div>
@@ -175,6 +217,39 @@ const StudyPlanDetail = () => {
             )
           })}
         </div>
+      </div>
+
+      {/* Flashcards Preview */}
+      <div className="card">
+        <h2 className="font-semibold text-lg mb-4">Flashcards Preview ({flashcards.length})</h2>
+        {flashcards.length > 0 ? (
+          <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+            {flashcards.map((card, index) => (
+              <div
+                key={card.id}
+                className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg border border-gray-100 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-xs font-medium">
+                    {index + 1}
+                  </div>
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="text-sm font-medium text-slate-900 dark:text-slate-200">
+                      {card.front_text}
+                    </div>
+                    <div className="text-sm text-slate-600 dark:text-slate-400 border-t md:border-t-0 md:border-l border-gray-200 dark:border-slate-700 pt-2 md:pt-0 md:pl-3">
+                      {card.back_text}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+            <p>No flashcards generated yet.</p>
+          </div>
+        )}
       </div>
 
       {/* Study Schedule */}
@@ -191,11 +266,10 @@ const StudyPlanDetail = () => {
                     {dayTasks.map((task) => (
                       <div
                         key={task.id}
-                        className={`p-3 rounded-lg border ${
-                          task.completion_status
-                            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                            : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700'
-                        }`}
+                        className={`p-3 rounded-lg border ${task.completion_status
+                          ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                          : 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700'
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <div>
@@ -241,16 +315,7 @@ const StudyPlanDetail = () => {
           Edit Plan
         </button>
         <button
-          onClick={async () => {
-            if (confirm('Are you sure you want to delete this study plan?')) {
-              try {
-                await api.delete(`/study-plans/${id}`)
-                navigate('/plans')
-              } catch (error) {
-                alert('Failed to delete plan')
-              }
-            }
-          }}
+          onClick={() => setShowDeleteConfirm(true)}
           className="flex-1 btn-secondary text-red-600 dark:text-red-400"
         >
           <Trash2 size={16} className="inline mr-2" />

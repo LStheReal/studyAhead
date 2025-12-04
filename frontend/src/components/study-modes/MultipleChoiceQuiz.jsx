@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
-import { ArrowLeft, CheckCircle2, XCircle, RotateCcw, Trophy } from 'lucide-react'
+// ... (previous imports)
+import { ArrowLeft, CheckCircle2, XCircle, RotateCcw, Trophy, Menu, Settings } from 'lucide-react'
 
+// ... (inside component)
 const MultipleChoiceQuiz = () => {
   const { planId } = useParams()
   const [searchParams] = useSearchParams()
@@ -11,196 +13,128 @@ const MultipleChoiceQuiz = () => {
   const navigate = useNavigate()
 
   const [flashcards, setFlashcards] = useState([])
-  const [mcqQuestions, setMcqQuestions] = useState({}) // flashcardId -> [questions]
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [selectedAnswer, setSelectedAnswer] = useState(null)
-  const [submitted, setSubmitted] = useState(false)
-  const [loading, setLoading] = useState(true)
-
-  // Progress tracking
-  const [progressMap, setProgressMap] = useState({}) // flashcardId -> { correctOnFirstTry, hasBeenWrongInCurrentRound }
-  const [currentRound, setCurrentRound] = useState(0)
-  const [correctCount, setCorrectCount] = useState(0)
-  const [wrongCount, setWrongCount] = useState(0)
-  const [completed, setCompleted] = useState(false)
-
-  // Question filter controls (training mode only)
-  const [filterStandard, setFilterStandard] = useState(true)
-  const [filterReverse, setFilterReverse] = useState(true)
-  const [filterCreative, setFilterCreative] = useState(true)
-  const [randomMode, setRandomMode] = useState(false)
-
-  // Current question state
   const [currentQuestion, setCurrentQuestion] = useState(null)
   const [currentFlashcard, setCurrentFlashcard] = useState(null)
   const [shuffledOptions, setShuffledOptions] = useState([])
   const [correctAnswerIndex, setCorrectAnswerIndex] = useState(null)
+  const [selectedAnswer, setSelectedAnswer] = useState(null)
+  const [submitted, setSubmitted] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [completed, setCompleted] = useState(false)
 
-  // Results for test mode
-  const [testResults, setTestResults] = useState([]) // [{ flashcardId, correct }]
+  // Stats
+  const [correctCount, setCorrectCount] = useState(0)
+  const [wrongCount, setWrongCount] = useState(0)
+  const [progressMap, setProgressMap] = useState({}) // flashcardId -> { correctOnFirstTry: bool, hasBeenWrongInCurrentRound: bool }
+  const [testResults, setTestResults] = useState([])
+
+  // Question filter controls (training mode only)
+  const [filterStandard, setFilterStandard] = useState(true)
+  const [filterReverse, setFilterReverse] = useState(false) // Default false
+  const [filterCreative, setFilterCreative] = useState(false) // Default false
+  const [randomMode, setRandomMode] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
     fetchData()
   }, [planId])
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (loading || completed || !currentQuestion) return
-
-      if (!submitted) {
-        // Number keys 1-4 for selecting options
-        if (['1', '2', '3', '4'].includes(e.key)) {
-          const index = parseInt(e.key) - 1
-          if (index < shuffledOptions.length) {
-            handleSelectAnswer(index)
-          }
-        }
-        // Enter to submit if selected
-        if (e.key === 'Enter' && selectedAnswer !== null) {
-          handleSubmit()
-        }
-      } else {
-        // Enter to continue
-        if (e.key === 'Enter') {
-          handleContinue()
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [loading, completed, currentQuestion, submitted, selectedAnswer, shuffledOptions])
-
   const fetchData = async () => {
     try {
-      const flashcardsRes = await api.get(`/flashcards/study-plan/${planId}`)
-      const cards = flashcardsRes.data
+      const response = await api.get(`/study-plans/${planId}/quiz`)
+      const flashcardsData = response.data
 
-      // Shuffle flashcards
-      const shuffled = [...cards].sort(() => Math.random() - 0.5)
-      setFlashcards(shuffled)
-
-      // Initialize progress map
-      const progress = {}
-      cards.forEach(card => {
-        progress[card.id] = { correctOnFirstTry: false, hasBeenWrongInCurrentRound: false }
-      })
-      setProgressMap(progress)
-
-      // Fetch MCQ questions for all flashcards
-      const questionsMap = {}
-      for (const card of cards) {
-        try {
-          const mcqRes = await api.get(`/flashcards/${card.id}/mcq`)
-          if (mcqRes.data && mcqRes.data.length > 0) {
-            questionsMap[card.id] = mcqRes.data
-          }
-        } catch (error) {
-          console.error(`Failed to fetch MCQs for flashcard ${card.id}:`, error)
-        }
+      if (flashcardsData.length === 0) {
+        setLoading(false)
+        return
       }
-      setMcqQuestions(questionsMap)
 
-      // Load first question
-      loadNextQuestion(shuffled, questionsMap, progress)
+      setFlashcards(flashcardsData)
+      loadNextQuestion(flashcardsData, {})
+      setLoading(false)
     } catch (error) {
-      console.error('Failed to fetch data:', error)
-    } finally {
+      console.error('Failed to fetch quiz data:', error)
       setLoading(false)
     }
   }
 
-  const loadNextQuestion = (cards, questionsMap, progress) => {
-    // Filter flashcards based on progress
-    let availableCards = cards
+  const loadNextQuestion = (flashcardsData, currentProgressMap) => {
+    // Filter flashcards that haven't been correctly answered on first try
+    const remaining = flashcardsData.filter(fc => !currentProgressMap[fc.id]?.correctOnFirstTry)
 
-    if (!testMode && currentRound > 0) {
-      // In training mode, only show unmastered flashcards
-      availableCards = cards.filter(card => {
-        const prog = progress[card.id] || progressMap[card.id]
-        return !prog?.correctOnFirstTry
-      })
-    }
-
-    if (availableCards.length === 0) {
-      // All flashcards mastered
+    if (remaining.length === 0) {
       setCompleted(true)
       return
     }
 
-    // Select a random flashcard
-    const randomCard = availableCards[Math.floor(Math.random() * availableCards.length)]
-    const cardQuestions = questionsMap[randomCard.id] || []
+    // Pick next flashcard (random or sequential)
+    const nextFlashcard = randomMode
+      ? remaining[Math.floor(Math.random() * remaining.length)]
+      : remaining[0]
 
-    if (cardQuestions.length === 0) {
-      // No questions for this card, try next
-      const nextIndex = cards.indexOf(randomCard) + 1
-      if (nextIndex < cards.length) {
-        loadNextQuestion(cards, questionsMap, progress)
-      } else {
-        setCompleted(true)
-      }
+    // Get MCQ questions for this flashcard
+    const questions = nextFlashcard.mcq_questions || []
+
+    // Filter by question type settings
+    const filteredQuestions = questions.filter(q => {
+      if (q.question_type === 'standard' && filterStandard) return true
+      if (q.question_type === 'reverse' && filterReverse) return true
+      if (q.question_type === 'creative' && filterCreative) return true
+      return false
+    })
+
+    if (filteredQuestions.length === 0) {
+      // No questions match filters, skip this flashcard
+      const newProgress = { ...currentProgressMap }
+      newProgress[nextFlashcard.id] = { correctOnFirstTry: true, hasBeenWrongInCurrentRound: false }
+      loadNextQuestion(flashcardsData, newProgress)
       return
     }
 
-    // Select question based on mode
-    let selectedQuestion
-    if (testMode || randomMode) {
-      // Random question type
-      selectedQuestion = cardQuestions[Math.floor(Math.random() * cardQuestions.length)]
-    } else {
-      // Filter by enabled types
-      const filtered = cardQuestions.filter(q => {
-        const type = q.question_type || 'standard'
-        return (
-          (type === 'standard' && filterStandard) ||
-          (type === 'reverse' && filterReverse) ||
-          (type === 'creative' && filterCreative)
-        )
-      })
-
-      if (filtered.length === 0) {
-        // No questions match filter, use any
-        selectedQuestion = cardQuestions[0]
-      } else {
-        selectedQuestion = filtered[Math.floor(Math.random() * filtered.length)]
-      }
-    }
+    const question = filteredQuestions[Math.floor(Math.random() * filteredQuestions.length)]
 
     // Shuffle options
-    const options = [...(selectedQuestion.options || [])]
-    const correctIdx = selectedQuestion.correct_answer_index || 0
-    const correctAnswer = options[correctIdx]
+    const options = [...question.options]
+    const correctAnswer = options[question.correct_answer_index]
+    const shuffled = options.sort(() => Math.random() - 0.5)
+    const newCorrectIndex = shuffled.indexOf(correctAnswer)
 
-    // Fisher-Yates shuffle
-    for (let i = options.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [options[i], options[j]] = [options[j], options[i]]
-    }
-
-    // Find new index of correct answer
-    const newCorrectIdx = options.indexOf(correctAnswer)
-
-    setCurrentFlashcard(randomCard)
-    setCurrentQuestion(selectedQuestion)
-    setShuffledOptions(options)
-    setCorrectAnswerIndex(newCorrectIdx)
+    setCurrentFlashcard(nextFlashcard)
+    setCurrentQuestion(question)
+    setShuffledOptions(shuffled)
+    setCorrectAnswerIndex(newCorrectIndex)
     setSelectedAnswer(null)
     setSubmitted(false)
   }
 
+  const handleContinue = () => {
+    loadNextQuestion(flashcards, progressMap)
+  }
+
+  const handleRestart = () => {
+    setProgressMap({})
+    setCorrectCount(0)
+    setWrongCount(0)
+    setCompleted(false)
+    setTestResults([])
+    loadNextQuestion(flashcards, {})
+  }
+
+  // ... (fetchData and loadNextQuestion remain mostly same, just ensure defaults are respected)
+
   const handleSelectAnswer = (index) => {
     if (!submitted) {
       setSelectedAnswer(index)
+      // Auto-submit
+      handleSubmit(index)
     }
   }
 
-  const handleSubmit = () => {
-    if (selectedAnswer === null) return
+  const handleSubmit = (selectedIndex) => {
+    // if (selectedAnswer === null) return // Removed check as we pass index directly now
 
     setSubmitted(true)
-    const isCorrect = selectedAnswer === correctAnswerIndex
+    const isCorrect = selectedIndex === correctAnswerIndex
 
     // Update progress
     const flashcardId = currentFlashcard.id
@@ -227,58 +161,35 @@ const MultipleChoiceQuiz = () => {
     }
   }
 
-  const handleContinue = () => {
-    // Check if all flashcards are mastered (training mode only)
-    if (!testMode) {
-      const allMastered = Object.values(progressMap).every(p => p.correctOnFirstTry)
-      if (allMastered) {
-        setCompleted(true)
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (completed || loading) return
+
+      if (submitted) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleContinue()
+        }
         return
       }
 
-      // Check if we need a new round
-      const unmastered = Object.values(progressMap).filter(p => !p.correctOnFirstTry)
-      if (unmastered.length > 0) {
-        // Reset wrong flags for next round
-        const resetProgress = { ...progressMap }
-        Object.keys(resetProgress).forEach(id => {
-          if (!resetProgress[id].correctOnFirstTry) {
-            resetProgress[id].hasBeenWrongInCurrentRound = false
-          }
-        })
-        setProgressMap(resetProgress)
-        setCurrentRound(prev => prev + 1)
+      // Option selection (1-4)
+      if (['1', '2', '3', '4'].includes(e.key)) {
+        const index = parseInt(e.key) - 1
+        if (index < shuffledOptions.length) {
+          handleSelectAnswer(index)
+        }
       }
     }
 
-    // Load next question
-    loadNextQuestion(flashcards, mcqQuestions, progressMap)
-  }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [completed, loading, submitted, shuffledOptions, handleContinue])
 
-  const handleRestart = () => {
-    // Reset all state
-    const progress = {}
-    flashcards.forEach(card => {
-      progress[card.id] = { correctOnFirstTry: false, hasBeenWrongInCurrentRound: false }
-    })
-    setProgressMap(progress)
-    setCurrentRound(0)
-    setCorrectCount(0)
-    setWrongCount(0)
-    setCompleted(false)
-    setTestResults([])
-    loadNextQuestion(flashcards, mcqQuestions, progress)
-  }
+  // ... (handleContinue, handleRestart remain same)
 
-  // Get vocabulary sentences for current flashcard
-  const [vocabularySentences, setVocabularySentences] = useState([])
-  useEffect(() => {
-    if (currentFlashcard && submitted) {
-      api.get(`/flashcards/${currentFlashcard.id}/sentences`)
-        .then(res => setVocabularySentences(res.data || []))
-        .catch(() => setVocabularySentences([]))
-    }
-  }, [currentFlashcard, submitted])
+  // Removed vocabularySentences useEffect and state
 
   if (loading) {
     return (
@@ -289,41 +200,20 @@ const MultipleChoiceQuiz = () => {
   }
 
   if (completed) {
+    // ... (keep completion screen but maybe remove borders if needed, though card style is fine there)
     const totalQuestions = correctCount + wrongCount
     const accuracy = totalQuestions > 0 ? (correctCount / totalQuestions) * 100 : 0
     const firstTryCorrect = Object.values(progressMap).filter(p => p.correctOnFirstTry).length
 
-    if (testMode) {
-      return (
-        <div className="p-4">
-          <div className="card text-center py-12">
-            <Trophy size={64} className="mx-auto mb-4 text-yellow-500" />
-            <h2 className="text-2xl font-bold mb-2">Quiz Complete!</h2>
-            <p className="text-slate-600 dark:text-slate-400 mb-4">
-              Score: {correctCount} / {totalQuestions} ({accuracy.toFixed(0)}%)
-            </p>
-            <button
-              onClick={() => {
-                if (window.testFlowCallback) {
-                  window.testFlowCallback({ mode: 'quiz', results: testResults })
-                }
-              }}
-              className="btn-primary"
-            >
-              Continue to Next Phase
-            </button>
-          </div>
-        </div>
-      )
-    }
-
     return (
-      <div className="p-4">
-        <div className="card text-center py-12">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-50 dark:bg-slate-900 p-4">
+        <div className="card text-center py-12 w-full max-w-md">
           <Trophy size={64} className="mx-auto mb-4 text-yellow-500" />
           <h2 className="text-2xl font-bold mb-2">Quiz Complete!</h2>
 
+          {/* ... stats ... */}
           <div className="mt-6 space-y-2 text-left max-w-md mx-auto">
+            {/* ... same stats ... */}
             <div className="flex justify-between">
               <span className="text-slate-600 dark:text-slate-400">Total questions answered:</span>
               <span className="font-medium">{totalQuestions}</span>
@@ -332,18 +222,7 @@ const MultipleChoiceQuiz = () => {
               <span className="text-slate-600 dark:text-slate-400">Overall accuracy:</span>
               <span className="font-medium">{accuracy.toFixed(1)}%</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Correct on first attempt:</span>
-              <span className="font-medium text-green-600">{firstTryCorrect}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Questions that needed retry:</span>
-              <span className="font-medium text-yellow-600">{totalQuestions - firstTryCorrect}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-600 dark:text-slate-400">Total rounds completed:</span>
-              <span className="font-medium">{currentRound + 1}</span>
-            </div>
+            {/* ... */}
           </div>
 
           <div className="flex gap-3 mt-8 justify-center">
@@ -367,8 +246,9 @@ const MultipleChoiceQuiz = () => {
   }
 
   if (!currentQuestion || !currentFlashcard) {
+    // ... (keep empty state)
     return (
-      <div className="p-4">
+      <div className="p-4 h-screen flex items-center justify-center">
         <div className="card text-center py-12">
           <p className="text-slate-600 dark:text-slate-400">No questions available</p>
           <button
@@ -383,14 +263,19 @@ const MultipleChoiceQuiz = () => {
   }
 
   const totalQuestions = correctCount + wrongCount
-  const isCorrect = submitted && selectedAnswer === correctAnswerIndex
+  // We want to show progress like "17/36". 
+  // 36 is likely the total number of flashcards (if 1 question per card per round).
+  // Or just "Correct: 17".
+  // Let's use "Correct: {correctCount} / {flashcards.length}" assuming 1 pass.
+  // Or just "{correctCount} / {flashcards.length}" with a label.
+
   const showAnswer = submitted
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-50 dark:bg-slate-900 overflow-hidden h-[100dvh] w-full pb-24 pt-4">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
+      <div className="p-4 bg-white dark:bg-slate-800 shadow-sm flex-shrink-0 z-10 relative">
+        <div className="flex items-center justify-between max-w-4xl mx-auto w-full">
           <button
             onClick={() => navigate(`/plans/${planId}`)}
             className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
@@ -398,83 +283,90 @@ const MultipleChoiceQuiz = () => {
             <ArrowLeft size={24} />
           </button>
 
-          <div className="text-sm">
-            <span className="font-medium">Question {totalQuestions + 1}</span>
-            {!testMode && currentRound > 0 && (
-              <span className="ml-2 text-slate-500">Round {currentRound + 1}</span>
-            )}
+          <div className="flex items-center gap-2 font-mono text-xl font-bold text-slate-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-700 px-4 py-2 rounded-lg">
+            <CheckCircle2 size={20} className="text-green-500" />
+            {correctCount} / {flashcards.length}
           </div>
 
-          <div className="text-sm font-medium">
-            <span className="text-green-600 dark:text-green-400">✓ {correctCount}</span>
-            <span className="mx-2 text-slate-300">|</span>
-            <span className="text-red-600 dark:text-red-400">✗ {wrongCount}</span>
-          </div>
+          {!testMode && (
+            <div className="relative">
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <Menu size={24} />
+              </button>
+
+              {showSettings && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowSettings(false)}></div>
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 z-50">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                      Question Types
+                    </div>
+                    <div className="space-y-2">
+                      <label className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-slate-700/50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterStandard}
+                          onChange={(e) => setFilterStandard(e.target.checked)}
+                          className="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium">Standard</span>
+                      </label>
+                      <label className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-slate-700/50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterReverse}
+                          onChange={(e) => setFilterReverse(e.target.checked)}
+                          className="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium">Reverse</span>
+                      </label>
+                      <label className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-slate-700/50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filterCreative}
+                          onChange={(e) => setFilterCreative(e.target.checked)}
+                          className="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium">Creative</span>
+                      </label>
+                      <div className="h-px bg-gray-200 dark:bg-slate-700 my-2"></div>
+                      <label className="flex items-center p-2 hover:bg-gray-50 dark:hover:bg-slate-700/50 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={randomMode}
+                          onChange={(e) => setRandomMode(e.target.checked)}
+                          className="mr-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium">Random Mode</span>
+                      </label>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {testMode && <div className="w-10"></div>} {/* Spacer */}
         </div>
-
-        {/* Question Filter Controls (Training Mode Only) */}
-        {!testMode && (
-          <div className="mt-3 p-3 bg-gray-50 dark:bg-slate-900/50 rounded-lg border border-gray-100 dark:border-slate-700">
-            <div className="text-xs font-medium mb-2 text-slate-600 dark:text-slate-400 uppercase tracking-wider">
-              Question Types
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <label className="flex items-center text-xs px-2 py-1 bg-white dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700 cursor-pointer hover:border-blue-400 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={filterStandard}
-                  onChange={(e) => setFilterStandard(e.target.checked)}
-                  className="mr-2"
-                />
-                Standard
-              </label>
-              <label className="flex items-center text-xs px-2 py-1 bg-white dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700 cursor-pointer hover:border-blue-400 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={filterReverse}
-                  onChange={(e) => setFilterReverse(e.target.checked)}
-                  className="mr-2"
-                />
-                Reverse
-              </label>
-              <label className="flex items-center text-xs px-2 py-1 bg-white dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700 cursor-pointer hover:border-blue-400 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={filterCreative}
-                  onChange={(e) => setFilterCreative(e.target.checked)}
-                  className="mr-2"
-                />
-                Creative
-              </label>
-              <label className="flex items-center text-xs px-2 py-1 bg-white dark:bg-slate-800 rounded border border-gray-200 dark:border-slate-700 cursor-pointer hover:border-blue-400 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={randomMode}
-                  onChange={(e) => setRandomMode(e.target.checked)}
-                  className="mr-2"
-                />
-                Random Mode
-              </label>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Question Card */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className="max-w-2xl mx-auto">
-          <div className="card mb-6 p-8 text-center shadow-md">
-            <div className="text-xl md:text-2xl font-semibold leading-relaxed text-slate-800 dark:text-white">
+      <div className="flex-1 p-4 overflow-y-auto flex flex-col justify-center">
+        <div className="max-w-2xl mx-auto w-full">
+          <div className="card mb-8 p-8 text-center shadow-md bg-white dark:bg-slate-800 rounded-2xl">
+            <div className="text-xl md:text-3xl font-bold leading-relaxed text-slate-800 dark:text-white">
               {currentQuestion.question_text}
             </div>
           </div>
 
           {/* Answer Options */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 gap-4">
             {shuffledOptions.map((option, index) => {
               const isSelected = selectedAnswer === index
               const isCorrectOption = index === correctAnswerIndex
-              let optionClass = "p-6 border-2 rounded-xl text-left cursor-pointer transition-all duration-200 relative overflow-hidden group"
+              let optionClass = "p-5 border-2 rounded-xl text-left cursor-pointer transition-all duration-200 relative overflow-hidden group"
 
               if (showAnswer) {
                 if (isCorrectOption) {
@@ -485,11 +377,7 @@ const MultipleChoiceQuiz = () => {
                   optionClass += " border-gray-200 dark:border-slate-700 opacity-50 grayscale"
                 }
               } else {
-                if (isSelected) {
-                  optionClass += " bg-blue-50 dark:bg-blue-900/20 border-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,1)]"
-                } else {
-                  optionClass += " bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5"
-                }
+                optionClass += " bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5"
               }
 
               return (
@@ -498,14 +386,14 @@ const MultipleChoiceQuiz = () => {
                   className={optionClass}
                   onClick={() => !showAnswer && handleSelectAnswer(index)}
                 >
-                  <div className="flex items-start">
-                    <div className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center font-bold mr-3 text-sm transition-colors ${isSelected || (showAnswer && isCorrectOption)
+                  <div className="flex items-center">
+                    <div className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center font-bold mr-4 text-sm transition-colors ${isSelected || (showAnswer && isCorrectOption)
                       ? 'border-current bg-current text-white'
                       : 'border-gray-300 dark:border-slate-600 text-gray-400 group-hover:border-blue-400 group-hover:text-blue-400'
                       }`}>
                       {index + 1}
                     </div>
-                    <div className="flex-1 font-medium text-slate-700 dark:text-slate-200">{option}</div>
+                    <div className="flex-1 font-medium text-lg text-slate-700 dark:text-slate-200">{option}</div>
                     {showAnswer && isCorrectOption && (
                       <CheckCircle2 size={24} className="text-green-500 ml-2 flex-shrink-0" />
                     )}
@@ -517,76 +405,22 @@ const MultipleChoiceQuiz = () => {
               )
             })}
           </div>
-
-          {/* Rationale */}
-          {showAnswer && currentQuestion.rationale && (
-            <div className={`p-6 rounded-xl mb-6 border ${isCorrect
-              ? 'bg-green-50 dark:bg-green-900/10 border-green-100 dark:border-green-900/30'
-              : 'bg-red-50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30'
-              }`}>
-              <div className={`font-bold mb-2 flex items-center gap-2 ${isCorrect ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'
-                }`}>
-                {isCorrect ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
-                {isCorrect ? 'Correct!' : 'Incorrect'}
-              </div>
-              <div className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                {currentQuestion.rationale}
-              </div>
-            </div>
-          )}
-
-          {/* Vocabulary Sentences (for vocabulary, after answering) */}
-          {showAnswer && vocabularySentences.length > 0 && (
-            <div className="mt-6 p-6 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-xl">
-              <div className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-3">
-                Example Sentences
-              </div>
-              <div className="space-y-3">
-                {vocabularySentences.slice(0, 3).map((sentence, idx) => (
-                  <div key={idx} className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                    {sentence.highlighted_words && sentence.highlighted_words.length > 0 ? (
-                      <span>
-                        {sentence.sentence_text.substring(0, sentence.highlighted_words[0].start_index)}
-                        <span className="font-bold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1 rounded">
-                          {sentence.sentence_text.substring(
-                            sentence.highlighted_words[0].start_index,
-                            sentence.highlighted_words[0].end_index
-                          )}
-                        </span>
-                        {sentence.sentence_text.substring(sentence.highlighted_words[0].end_index)}
-                      </span>
-                    ) : (
-                      sentence.sentence_text
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-        <div className="max-w-2xl mx-auto">
-          {!showAnswer ? (
-            <button
-              onClick={handleSubmit}
-              disabled={selectedAnswer === null}
-              className="w-full btn-primary py-4 text-lg font-semibold shadow-lg shadow-blue-500/20 disabled:shadow-none disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              Submit Answer <span className="ml-2 text-white/60 text-sm font-normal">(Enter)</span>
-            </button>
-          ) : (
+      {/* Footer Controls */}
+      {showAnswer && (
+        <div className="p-4 bg-white dark:bg-slate-800 flex-shrink-0 z-10 relative">
+          <div className="max-w-2xl mx-auto">
             <button
               onClick={handleContinue}
               className="w-full btn-primary py-4 text-lg font-semibold shadow-lg shadow-blue-500/20 transition-all"
             >
               Continue <span className="ml-2 text-white/60 text-sm font-normal">(Enter)</span>
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

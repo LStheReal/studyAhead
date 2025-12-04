@@ -1,24 +1,30 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import { Upload, X, FileText, Image as ImageIcon, Type, Camera } from 'lucide-react'
 
 const CreateStudyPlan = () => {
   const navigate = useNavigate()
-  const [step, setStep] = useState(1)
   const [formData, setFormData] = useState({
     name: '',
-    type: 'complete_test',
     exam_date: '',
-    learning_objectives: '',
     question_language: '',
     answer_language: '',
   })
   const [files, setFiles] = useState([])
   const [textContent, setTextContent] = useState('')
   const [loading, setLoading] = useState(false)
-  const [planId, setPlanId] = useState(null)
   const [processingStatus, setProcessingStatus] = useState(null)
+  const [planId, setPlanId] = useState(null)
+  const pollCountRef = useRef(0)
+  const maxPollCount = 150
+  const isMounted = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
 
   const handleInputChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -34,7 +40,6 @@ const CreateStudyPlan = () => {
   }
 
   const handleCameraCapture = () => {
-    // Create file input with camera capture
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = 'image/*'
@@ -47,296 +52,202 @@ const CreateStudyPlan = () => {
     input.click()
   }
 
-  const handleCreatePlan = async () => {
+  const handleSubmit = async () => {
     if (!formData.name) {
       alert('Please enter a study plan name')
       return
     }
 
     setLoading(true)
-    try {
-      // Prepare plan data with proper date formatting
-      const planData = {
-        name: formData.name.trim(),
-        type: formData.type,
-        exam_date: formData.exam_date ? `${formData.exam_date}T00:00:00Z` : null,
-        learning_objectives: formData.learning_objectives?.trim() || null,
-        question_language: formData.question_language?.trim() || null,
-        answer_language: formData.answer_language?.trim() || null,
-      }
-      
-      const response = await api.post('/study-plans/', planData)
-      const newPlanId = response.data.id
-      setPlanId(newPlanId)
+    setProcessingStatus({ status: 'creating', message: 'Creating example plan...' })
 
-      // If materials were provided, upload them immediately
-      if (files.length > 0 || textContent.trim()) {
-        setProcessingStatus({ status: 'uploading', message: 'Uploading materials...' })
-        
-        const formDataToSend = new FormData()
-        files.forEach((file) => {
-          formDataToSend.append('files', file)
-        })
-        if (textContent.trim()) {
-          formDataToSend.append('text_content', textContent)
+    try {
+      // Check if user has any existing plans
+      const plansResponse = await api.get('/study-plans/')
+      const existingPlans = plansResponse.data
+
+      if (existingPlans.length > 0) {
+        // User has plans, redirect to first one
+        setTimeout(() => {
+          navigate(`/plans/${existingPlans[0].id}`)
+        }, 1000)
+      } else {
+        // No plans exist, create a mock example plan
+        const mockPlan = {
+          name: 'Example Vocabulary Plan',
+          type: 'flashcard_set',
+          category: 'VOCABULARY',
+          exam_date: null,
+          question_language: 'English',
+          answer_language: 'German',
         }
+
+        const planResponse = await api.post('/study-plans/', mockPlan)
+        const newPlanId = planResponse.data.id
+
+        // Create mock flashcards (10 items) - English to German
+        const mockFlashcards = [
+          { front_text: 'Hello', back_text: 'Hallo', difficulty: 'Easy' },
+          { front_text: 'Goodbye', back_text: 'Auf Wiedersehen', difficulty: 'Easy' },
+          { front_text: 'Thank you', back_text: 'Danke', difficulty: 'Easy' },
+          { front_text: 'Please', back_text: 'Bitte', difficulty: 'Easy' },
+          { front_text: 'Good morning', back_text: 'Guten Morgen', difficulty: 'Medium' },
+          { front_text: 'Good night', back_text: 'Gute Nacht', difficulty: 'Medium' },
+          { front_text: 'Yes', back_text: 'Ja', difficulty: 'Easy' },
+          { front_text: 'No', back_text: 'Nein', difficulty: 'Easy' },
+          { front_text: 'Water', back_text: 'Wasser', difficulty: 'Easy' },
+          { front_text: 'Food', back_text: 'Essen', difficulty: 'Medium' },
+        ]
+
+        setProcessingStatus({ status: 'creating', message: 'Creating flashcards...' })
+
+        // Create flashcards and collect their IDs
+        const flashcardIds = []
+        for (const flashcard of mockFlashcards) {
+          const response = await api.post(`/flashcards/study-plan/${newPlanId}`, flashcard)
+          flashcardIds.push(response.data.id)
+        }
+
+        // Generate sentences and MCQs for each flashcard
+        setProcessingStatus({ status: 'creating', message: 'Generating sentences and questions...' })
 
         try {
-          await api.post(`/materials/upload?study_plan_id=${newPlanId}`, formDataToSend, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-          })
+          for (const flashcardId of flashcardIds) {
+            // Generate 1 sentence per flashcard (10 total)
+            await api.post(`/flashcards/${flashcardId}/generate-sentences`)
 
-          // Start polling for status
-          pollProcessingStatus(newPlanId)
-        } catch (uploadError) {
-          console.error('Upload error:', uploadError)
-          let uploadErrorMsg = 'Failed to upload materials'
-          
-          if (uploadError.response?.data) {
-            const errorData = uploadError.response.data
-            if (typeof errorData === 'string') {
-              uploadErrorMsg = errorData
-            } else if (errorData?.detail) {
-              uploadErrorMsg = Array.isArray(errorData.detail) 
-                ? errorData.detail.map(e => e.msg || JSON.stringify(e)).join(', ')
-                : errorData.detail
-            } else if (errorData?.message) {
-              uploadErrorMsg = errorData.message
-            } else {
-              uploadErrorMsg = JSON.stringify(errorData)
-            }
-          } else if (uploadError.message) {
-            uploadErrorMsg = uploadError.message
+            // Generate MCQ questions (3 types per flashcard = 30 total)
+            await api.post(`/flashcards/${flashcardId}/generate-mcq`)
           }
-          
-          alert(`Plan created, but failed to upload materials: ${uploadErrorMsg}`)
-          setLoading(false)
-          setProcessingStatus(null)
-          setStep(2) // Go to step 2 to retry upload
+        } catch (genError) {
+          console.error('Error generating content:', genError)
+          // Continue anyway - flashcards were created
         }
-      } else {
-        // No materials, go to step 2 to upload
-        setStep(2)
-        setLoading(false)
+
+        setProcessingStatus({ status: 'complete', message: 'Example plan created!' })
+
+        setTimeout(() => {
+          navigate(`/plans/${newPlanId}`)
+        }, 1000)
       }
     } catch (error) {
-      console.error('Create plan error:', error)
-      let errorMessage = 'Failed to create study plan'
-      
-      if (error.response) {
-        const errorData = error.response.data
-        if (typeof errorData === 'string') {
-          errorMessage = errorData
-        } else if (errorData?.detail) {
-          errorMessage = Array.isArray(errorData.detail) 
-            ? errorData.detail.map(e => e.msg || JSON.stringify(e)).join(', ')
-            : errorData.detail
-        } else if (errorData?.message) {
-          errorMessage = errorData.message
-        } else if (errorData) {
-          errorMessage = JSON.stringify(errorData)
-        }
-      } else if (error.message) {
-        errorMessage = error.message
-      }
-      
-      alert(`Failed to create study plan: ${errorMessage}`)
+      console.error('Error creating plan:', error)
+      setProcessingStatus({ status: 'error', message: 'Failed to create plan' })
       setLoading(false)
-      setProcessingStatus(null)
-    }
-  }
-
-  const handleUploadMaterials = async () => {
-    if (files.length === 0 && !textContent.trim()) {
-      alert('Please upload files or paste text content')
-      return
-    }
-
-    setLoading(true)
-    setProcessingStatus({ status: 'uploading', message: 'Uploading materials...' })
-
-    try {
-      const formDataToSend = new FormData()
-      files.forEach((file) => {
-        formDataToSend.append('files', file)
-      })
-      if (textContent.trim()) {
-        formDataToSend.append('text_content', textContent)
-      }
-
-      await api.post(`/materials/upload?study_plan_id=${planId}`, formDataToSend, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-
-      // Start polling for status
-      pollProcessingStatus(planId)
-    } catch (error) {
-      console.error('Upload materials error:', error)
-      let errorMessage = 'Failed to upload materials'
-      
-      if (error.response?.data) {
-        const errorData = error.response.data
-        if (typeof errorData === 'string') {
-          errorMessage = errorData
-        } else if (errorData?.detail) {
-          errorMessage = Array.isArray(errorData.detail) 
-            ? errorData.detail.map(e => e.msg || JSON.stringify(e)).join(', ')
-            : errorData.detail
-        } else if (errorData?.message) {
-          errorMessage = errorData.message
-        } else {
-          errorMessage = JSON.stringify(errorData)
-        }
-      } else if (error.message) {
-        errorMessage = error.message
-      }
-      
-      alert(`Failed to upload materials: ${errorMessage}`)
-      setLoading(false)
-      setProcessingStatus(null)
     }
   }
 
   const pollProcessingStatus = async (currentPlanId) => {
-    const interval = setInterval(async () => {
-      try {
-        const response = await api.get(`/materials/${currentPlanId}/status`)
-        const status = response.data
+    if (!isMounted.current) return
 
-        setProcessingStatus({
-          status: status.status,
-          message: getStatusMessage(status.status),
-          hasSummary: status.has_summary,
-          flashcardCount: status.flashcard_count,
-        })
+    pollCountRef.current += 1
+    if (pollCountRef.current > maxPollCount) {
+      setLoading(false)
+      alert('Processing is taking longer than expected. Check your plans page.')
+      navigate('/plans')
+      return
+    }
 
-        if (status.status === 'awaiting_approval') {
-          clearInterval(interval)
-          setLoading(false)
-          // If we're on step 1, go to step 3 (skip step 2 since materials already uploaded)
-          // If we're on step 2, also go to step 3
-          setStep(3)
-        }
-      } catch (error) {
-        console.error('Failed to check status:', error)
-        clearInterval(interval)
+    try {
+      const response = await api.get(`/materials/${currentPlanId}/status`)
+      const status = response.data
+
+      if (!isMounted.current) return
+
+      const normalizedStatus = status.status?.toLowerCase()
+
+      setProcessingStatus({
+        status: normalizedStatus,
+        message: getStatusMessage(normalizedStatus, status.flashcard_count),
+        flashcardCount: status.flashcard_count,
+      })
+
+      if (normalizedStatus === 'awaiting_approval' || normalizedStatus === 'active') {
         setLoading(false)
+        setTimeout(() => navigate(`/plans/${currentPlanId}`), 1500)
+      } else if (normalizedStatus === 'generating') {
+        setTimeout(() => pollProcessingStatus(currentPlanId), 2000)
+      } else {
+        setLoading(false)
+        setProcessingStatus({
+          status: 'error',
+          message: 'Unexpected status. Check your plans page.'
+        })
+        setTimeout(() => navigate('/plans'), 3000)
       }
-    }, 2000)
+    } catch (error) {
+      console.error('Failed to check status:', error)
+      if (isMounted.current) {
+        setLoading(false)
+        setProcessingStatus({
+          status: 'error',
+          message: 'Error checking status. Your plan may still be processing.'
+        })
+        setTimeout(() => navigate('/plans'), 3000)
+      }
+    }
   }
 
-  const getStatusMessage = (status) => {
+  const getStatusMessage = (status, flashcardCount) => {
     const messages = {
-      generating: 'Analyzing your materials...',
-      awaiting_approval: 'Materials processed! Review and approve to continue.',
+      creating: 'Creating study plan...',
+      uploading: 'Uploading materials...',
+      generating: flashcardCount > 0
+        ? `Generating flashcards... (${flashcardCount} created)`
+        : 'Analyzing your materials...',
+      awaiting_approval: `Success! Generated ${flashcardCount} flashcards. Redirecting...`,
     }
     return messages[status] || 'Processing...'
   }
 
-  const handleApprove = async () => {
-    setLoading(true)
-    try {
-      await api.post(`/study-plans/${planId}/approve`)
-      setProcessingStatus({ status: 'generating', message: 'Generating study schedule...' })
-      // Poll for schedule completion
-      const interval = setInterval(async () => {
-        try {
-          const response = await api.get(`/study-plans/${planId}`)
-          if (response.data.status === 'active') {
-            clearInterval(interval)
-            navigate(`/plans/${planId}`)
-          }
-        } catch (error) {
-          clearInterval(interval)
-          setLoading(false)
-        }
-      }, 2000)
-    } catch (error) {
-      alert('Failed to approve plan: ' + (error.response?.data?.detail || error.message))
-      setLoading(false)
-    }
-  }
-
   return (
-    <div className="p-4 space-y-6">
-      <h1 className="text-2xl font-bold">Create Study Plan</h1>
+    <div className="max-w-4xl mx-auto p-4">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold mb-2">Create Study Plan</h1>
+        <p className="text-slate-600 dark:text-slate-400">
+          Add your learning materials and we'll generate flashcards automatically
+        </p>
+      </div>
 
-      {/* Processing Status Banner (shown during step 1 if uploading) */}
-      {processingStatus && step === 1 && (
-        <div className="card bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-          <div className="flex items-center gap-3">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-            <div className="flex-1">
-              <div className="font-medium">{processingStatus.message}</div>
-              {processingStatus.flashcardCount > 0 && (
-                <div className="text-sm text-slate-600 dark:text-slate-400">
-                  {processingStatus.flashcardCount} flashcards generated
-                </div>
-              )}
-            </div>
-          </div>
+      {processingStatus ? (
+        <div className="card text-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-lg font-medium mb-2">{processingStatus.message}</p>
+          {processingStatus.flashcardCount > 0 && (
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              {processingStatus.flashcardCount} flashcards generated
+            </p>
+          )}
         </div>
-      )}
-
-      {/* Step 1: Plan Details */}
-      {step === 1 && (
-        <div className="space-y-4">
+      ) : (
+        <div className="space-y-6">
+          {/* Basic Info */}
           <div className="card">
-            <h2 className="font-semibold text-lg mb-4">Plan Details</h2>
+            <h2 className="font-semibold text-lg mb-4">Basic Information</h2>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Study Plan Name *</label>
+                <label className="block text-sm font-medium mb-1">Plan Name *</label>
                 <input
                   type="text"
                   name="name"
                   value={formData.name}
                   onChange={handleInputChange}
-                  required
                   className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-white text-slate-900"
-                  placeholder="e.g., Spanish Vocabulary Test"
+                  placeholder="e.g., Spanish Vocabulary"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Plan Type *</label>
-                <select
-                  name="type"
-                  value={formData.type}
+                <label className="block text-sm font-medium mb-1">Exam Date (Optional)</label>
+                <input
+                  type="date"
+                  name="exam_date"
+                  value={formData.exam_date}
                   onChange={handleInputChange}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-white text-slate-900"
-                >
-                  <option value="complete_test">Complete Test Study Plan</option>
-                  <option value="flashcard_set">Simple Flashcard Set</option>
-                </select>
+                />
               </div>
-
-              {formData.type === 'complete_test' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Exam Date</label>
-                    <input
-                      type="date"
-                      name="exam_date"
-                      value={formData.exam_date}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-white text-slate-900"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Learning Objectives (Optional)</label>
-                    <textarea
-                      name="learning_objectives"
-                      value={formData.learning_objectives}
-                      onChange={handleInputChange}
-                      rows={3}
-                      className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-white text-slate-900"
-                      placeholder="What do you want to achieve?"
-                    />
-                  </div>
-                </>
-              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -365,11 +276,11 @@ const CreateStudyPlan = () => {
             </div>
           </div>
 
-          {/* Materials Upload Section */}
+          {/* Materials */}
           <div className="card">
-            <h2 className="font-semibold text-lg mb-4">Add Learning Materials</h2>
+            <h2 className="font-semibold text-lg mb-4">Learning Materials *</h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-              Upload PDFs, images, or paste text content to generate flashcards automatically
+              Upload files or paste text content
             </p>
 
             {/* File Upload Options */}
@@ -377,7 +288,6 @@ const CreateStudyPlan = () => {
               <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
                 <FileText size={24} className="mb-2 text-blue-500" />
                 <span className="text-sm font-medium">PDF Files</span>
-                <span className="text-xs text-slate-500 mt-1">.pdf</span>
                 <input
                   type="file"
                   accept=".pdf"
@@ -388,7 +298,6 @@ const CreateStudyPlan = () => {
               <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
                 <ImageIcon size={24} className="mb-2 text-blue-500" />
                 <span className="text-sm font-medium">Images</span>
-                <span className="text-xs text-slate-500 mt-1">JPG, PNG, HEIC</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -404,140 +313,24 @@ const CreateStudyPlan = () => {
               >
                 <Camera size={24} className="mb-2 text-blue-500" />
                 <span className="text-sm font-medium">Camera</span>
-                <span className="text-xs text-slate-500 mt-1">Take photo</span>
               </button>
-              <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
+              <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg">
                 <Type size={24} className="mb-2 text-blue-500" />
-                <span className="text-sm font-medium">Text</span>
-                <span className="text-xs text-slate-500 mt-1">Paste content</span>
-              </label>
-            </div>
-
-            {/* Selected Files */}
-            {files.length > 0 && (
-              <div className="space-y-2 mb-4">
-                <h3 className="text-sm font-medium">Selected Files ({files.length}):</h3>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {files.map((file, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-2 bg-gray-50 dark:bg-slate-700 rounded border border-gray-200 dark:border-slate-600"
-                    >
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <FileText size={16} className="text-blue-500 flex-shrink-0" />
-                        <span className="text-sm truncate">{file.name}</span>
-                        <span className="text-xs text-slate-500 flex-shrink-0">
-                          ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeFile(index)}
-                        className="ml-2 text-red-500 hover:text-red-700 flex-shrink-0"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <span className="text-sm font-medium">Text Below</span>
               </div>
-            )}
-
-            {/* Text Input */}
-            <div>
-              <label className="block text-sm font-medium mb-1">Or Paste Text Content</label>
-              <textarea
-                value={textContent}
-                onChange={(e) => setTextContent(e.target.value)}
-                rows={4}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-white text-slate-900"
-                placeholder="Paste your study material, notes, or text content here..."
-              />
-              {textContent && (
-                <p className="text-xs text-slate-500 mt-1">
-                  {textContent.length} characters
-                </p>
-              )}
-            </div>
-          </div>
-
-          <button
-            onClick={handleCreatePlan}
-            disabled={loading || !formData.name}
-            className="w-full btn-primary py-3 disabled:opacity-50"
-          >
-            {loading ? 'Creating...' : 'Create Plan & Upload Materials'}
-          </button>
-        </div>
-      )}
-
-      {/* Step 2: Upload Materials (if not uploaded in step 1) */}
-      {step === 2 && (
-        <div className="space-y-4">
-          <div className="card">
-            <h2 className="font-semibold text-lg mb-4">Upload Materials</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-              Add learning materials to generate flashcards automatically
-            </p>
-
-            {/* File Upload Options */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
-                <FileText size={24} className="mb-2 text-blue-500" />
-                <span className="text-sm font-medium">PDF Files</span>
-                <input
-                  type="file"
-                  accept=".pdf"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-              </label>
-              <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
-                <ImageIcon size={24} className="mb-2 text-blue-500" />
-                <span className="text-sm font-medium">Images</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={handleCameraCapture}
-                className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-              >
-                <Camera size={24} className="mb-2 text-blue-500" />
-                <span className="text-sm font-medium">Camera</span>
-              </button>
-              <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
-                <Type size={24} className="mb-2 text-blue-500" />
-                <span className="text-sm font-medium">Text</span>
-              </label>
             </div>
 
-            {/* Selected Files */}
+            {/* Uploaded Files */}
             {files.length > 0 && (
-              <div className="space-y-2 mb-4">
-                <h3 className="text-sm font-medium">Selected Files ({files.length}):</h3>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+              <div className="mb-4">
+                <p className="text-sm font-medium mb-2">Uploaded Files:</p>
+                <div className="space-y-2">
                   {files.map((file, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-2 bg-gray-50 dark:bg-slate-700 rounded border border-gray-200 dark:border-slate-600"
-                    >
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <FileText size={16} className="text-blue-500 flex-shrink-0" />
-                        <span className="text-sm truncate">{file.name}</span>
-                        <span className="text-xs text-slate-500 flex-shrink-0">
-                          ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                        </span>
-                      </div>
+                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-slate-700 rounded">
+                      <span className="text-sm truncate flex-1">{file.name}</span>
                       <button
-                        type="button"
                         onClick={() => removeFile(index)}
-                        className="ml-2 text-red-500 hover:text-red-700 flex-shrink-0"
+                        className="ml-2 text-red-500 hover:text-red-700"
                       >
                         <X size={16} />
                       </button>
@@ -555,7 +348,7 @@ const CreateStudyPlan = () => {
                 onChange={(e) => setTextContent(e.target.value)}
                 rows={6}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-white text-slate-900"
-                placeholder="Paste your study material, notes, or text content here..."
+                placeholder="Paste your study material, vocabulary lists, or notes here..."
               />
               {textContent && (
                 <p className="text-xs text-slate-500 mt-1">
@@ -565,72 +358,13 @@ const CreateStudyPlan = () => {
             </div>
           </div>
 
-          {/* Processing Status */}
-          {processingStatus && (
-            <div className="card bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-              <div className="flex items-center gap-3">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                <div className="flex-1">
-                  <div className="font-medium">{processingStatus.message}</div>
-                  {processingStatus.flashcardCount > 0 && (
-                    <div className="text-sm text-slate-600 dark:text-slate-400">
-                      {processingStatus.flashcardCount} flashcards generated
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => setStep(1)}
-              className="flex-1 btn-secondary"
-            >
-              Back
-            </button>
-            <button
-              onClick={handleUploadMaterials}
-              disabled={loading || (files.length === 0 && !textContent.trim())}
-              className="flex-1 btn-primary disabled:opacity-50"
-            >
-              {loading ? 'Processing...' : 'Upload & Process'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Review & Approve */}
-      {step === 3 && (
-        <div className="space-y-4">
-          <div className="card">
-            <h2 className="font-semibold text-lg mb-4">Review Materials</h2>
-            <p className="text-slate-600 dark:text-slate-400 mb-4">
-              Your materials have been processed. Review the summary and flashcards, then approve to generate your study schedule.
-            </p>
-            <button
-              onClick={() => navigate(`/plans/${planId}`)}
-              className="btn-secondary mb-4"
-            >
-              Review Flashcards
-            </button>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => setStep(2)}
-              className="flex-1 btn-secondary"
-            >
-              Back
-            </button>
-            <button
-              onClick={handleApprove}
-              disabled={loading}
-              className="flex-1 btn-primary disabled:opacity-50"
-            >
-              {loading ? 'Generating Schedule...' : 'Approve & Generate Schedule'}
-            </button>
-          </div>
+          <button
+            onClick={handleSubmit}
+            disabled={loading || !formData.name}
+            className="w-full btn-primary py-3 disabled:opacity-50"
+          >
+            {loading ? 'Creating...' : 'Create Study Plan'}
+          </button>
         </div>
       )}
     </div>
@@ -638,4 +372,3 @@ const CreateStudyPlan = () => {
 }
 
 export default CreateStudyPlan
-

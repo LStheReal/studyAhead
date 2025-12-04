@@ -42,8 +42,8 @@ const Register = () => {
       <div className="w-full max-w-md">
         <div className="card">
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-primary rounded-full mb-4">
-              <BookOpen className="text-white" size={32} />
+            <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-2xl mb-4 shadow-lg p-3">
+              <img src="/logo.png" alt="StudyAhead" className="w-full h-full object-contain" />
             </div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Create Account</h1>
             <p className="text-slate-600 dark:text-slate-400 mt-2">Start your learning journey</p>

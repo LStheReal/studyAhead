@@ -106,6 +106,24 @@ class FlashcardUpdate(BaseModel):
     back_text: Optional[str] = None
     difficulty: Optional[str] = None
 
+class MCQQuestionResponse(BaseModel):
+    id: int
+    flashcard_id: int
+    question_text: str
+    options: List[str]
+    correct_answer_index: int
+    rationale: Optional[str]
+    question_type: str
+    
+    class Config:
+        from_attributes = True
+
+class FlashcardWithQuestions(FlashcardResponse):
+    mcq_questions: List[MCQQuestionResponse] = []
+    
+    class Config:
+        from_attributes = True
+
 # Task Schemas
 class TaskResponse(BaseModel):
     id: int
