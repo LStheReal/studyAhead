@@ -19,10 +19,19 @@ async def create_study_plan(
 ):
     """Create a new study plan. If materials are provided, start background processing."""
     try:
+        # Convert category string to enum
+        category_enum = MaterialCategory.VOCABULARY  # Default
+        if plan_data.category:
+            try:
+                category_enum = MaterialCategory(plan_data.category.lower())
+            except ValueError:
+                category_enum = MaterialCategory.VOCABULARY
+        
         db_plan = StudyPlan(
             user_id=current_user.id,
             name=plan_data.name,
             type=plan_data.type,
+            category=category_enum,
             exam_date=plan_data.exam_date,
             learning_objectives=plan_data.learning_objectives,
             question_language=plan_data.question_language,

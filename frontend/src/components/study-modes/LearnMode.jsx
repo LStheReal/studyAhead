@@ -30,7 +30,7 @@ const LearnMode = () => {
     try {
       setLoading(true)
       // Fetch flashcards
-      const response = await api.get(`/study-plans/${planId}/flashcards`)
+      const response = await api.get(`/flashcards/study-plan/${planId}`)
       const cards = response.data
 
       if (Array.isArray(cards)) {
@@ -51,11 +51,11 @@ const LearnMode = () => {
         // If not, we can fetch for the current card.
         // Let's check if we can fetch sentences.
         try {
-          const sentencesRes = await api.get(`/study-plans/${planId}/vocabulary`)
-          // Assuming this returns a map or list we can parse
-          // If not, we'll skip or fetch individually.
-          // For safety, let's just initialize empty and maybe fetch for current card if needed.
-          // But the previous code had `vocabularySentences` state.
+          const sentencesRes = await api.get(`/flashcards/study-plan/${planId}/sentences`)
+          // Store sentences grouped by flashcard ID
+          if (sentencesRes.data) {
+            setVocabularySentences(sentencesRes.data)
+          }
         } catch (err) {
           console.log('Could not fetch vocabulary sentences batch', err)
         }
@@ -75,7 +75,7 @@ const LearnMode = () => {
   useEffect(() => {
     const currentCard = flashcards[currentIndex]
     if (currentCard && !vocabularySentences[currentCard.id]) {
-      api.get(`/flashcards/${currentCard.id}/vocabulary`)
+      api.get(`/flashcards/${currentCard.id}/sentences`)
         .then(res => {
           setVocabularySentences(prev => ({
             ...prev,

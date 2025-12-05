@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
 from app.auth import get_current_user
-from app.models import User, StudyPlan, Flashcard, VocabularySentence, MCQQuestion
+from app.models import User, StudyPlan, Flashcard, VocabularySentence, MCQQuestion, MaterialCategory
 from app.schemas import FlashcardCreate, FlashcardResponse, FlashcardUpdate
 from app.ai_service import ai_service
 
@@ -51,6 +51,46 @@ async def create_flashcard(
     db.add(flashcard)
     db.commit()
     db.refresh(flashcard)
+    
+    # Generate MCQs and sentences for vocabulary flashcards
+    if plan.category == MaterialCategory.VOCABULARY:
+        try:
+            # Generate 3 MCQ questions
+            questions_data = ai_service.generate_mcq_questions(
+                {"front_text": flashcard.front_text, "back_text": flashcard.back_text},
+                plan.question_language or "English",
+                plan.answer_language or "English"
+            )
+            
+            for q_data in questions_data:
+                question = MCQQuestion(
+                    flashcard_id=flashcard.id,
+                    question_text=q_data.get("question_text", ""),
+                    options=q_data.get("options", []),
+                    correct_answer_index=q_data.get("correct_answer_index", 0),
+                    rationale=q_data.get("rationale"),
+                    question_type=q_data.get("question_type", "standard")
+                )
+                db.add(question)
+            
+            # Generate vocabulary sentences
+            sentences_data = ai_service.generate_vocabulary_sentences(
+                flashcard.front_text,
+                flashcard.back_text
+            )
+            
+            for sent_data in sentences_data:
+                sentence = VocabularySentence(
+                    flashcard_id=flashcard.id,
+                    sentence_text=sent_data.get("sentence_text", ""),
+                    highlighted_words=sent_data.get("highlighted_words", [])
+                )
+                db.add(sentence)
+            
+            db.commit()
+        except Exception as e:
+            print(f"Error generating MCQs/sentences for flashcard {flashcard.id}: {e}")
+            # Don't fail the flashcard creation if MCQ/sentence generation fails
     
     return flashcard
 
@@ -140,7 +180,8 @@ async def generate_vocabulary_sentences(
     if not flashcard:
         raise HTTPException(status_code=404, detail="Flashcard not found")
     
-    if str(flashcard.study_plan.category).lower() != "vocabulary":
+    from app.models import MaterialCategory
+    if flashcard.study_plan.category != MaterialCategory.VOCABULARY:
         raise HTTPException(status_code=400, detail="Sentences only available for vocabulary")
     
     # Generate sentences

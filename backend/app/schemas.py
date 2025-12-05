@@ -46,6 +46,7 @@ class StudyPlanCreate(BaseModel):
     learning_objectives: Optional[str] = None
     question_language: Optional[str] = None
     answer_language: Optional[str] = None
+    category: Optional[str] = "vocabulary"  # Default to vocabulary
 
 class StudyPlanResponse(BaseModel):
     id: int

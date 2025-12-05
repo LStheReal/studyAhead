@@ -76,7 +76,7 @@ const CreateStudyPlan = () => {
         const mockPlan = {
           name: 'Example Vocabulary Plan',
           type: 'flashcard_set',
-          category: 'VOCABULARY',
+          category: 'vocabulary',
           exam_date: null,
           question_language: 'English',
           answer_language: 'German',

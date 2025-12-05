@@ -36,6 +36,8 @@ const StudyPlanDetail = () => {
         api.get(`/tasks/study-plan/${id}`),
         api.get(`/flashcards/study-plan/${id}`)
       ])
+      console.log('Plan data:', planRes.data)
+      console.log('Plan category:', planRes.data.category, 'Type:', typeof planRes.data.category)
       setPlan(planRes.data)
       setTasks(tasksRes.data)
       setFlashcards(flashcardsRes.data)
@@ -194,10 +196,11 @@ const StudyPlanDetail = () => {
       {/* Study Modes */}
       <div className="card">
         <h2 className="font-semibold text-lg mb-4">Study Modes</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {studyModes.map((mode) => {
             const Icon = mode.icon
-            const isAvailable = plan.category?.toLowerCase() === 'vocabulary'
+            // Enable all modes for vocabulary plans (flashcards.length > 0 means we have content)
+            const isAvailable = flashcards.length > 0
             return (
               <button
                 key={mode.id}
