@@ -311,7 +311,7 @@ const StudyPlanDetail = () => {
       {/* Quick Actions */}
       <div className="flex gap-2">
         <button
-          onClick={() => navigate(`/create?edit=${id}`)}
+          onClick={() => navigate(`/plans/${id}/edit`)}
           className="flex-1 btn-secondary"
         >
           <Edit3 size={16} className="inline mr-2" />

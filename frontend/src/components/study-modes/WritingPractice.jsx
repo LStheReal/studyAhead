@@ -295,11 +295,11 @@ const WritingPractice = () => {
   }
 
   if (completed) {
-    const totalWords = flashcards.length
-    const firstTryCorrect = Object.values(cardStatus).filter(s => s.known && s.attempts === 1).length
-    const totalAttempts = Object.values(cardStatus).reduce((sum, s) => sum + s.attempts, 0)
+    const totalWords = Object.keys(cardStatus).length
+    const firstTryCorrect = Object.values(cardStatus).filter(s => s.known && s.attempts === 0).length
+    const totalAttempts = correctCount + incorrectCount
     const avgAttempts = totalWords > 0 ? (totalAttempts / totalWords).toFixed(1) : 0
-    const accuracy = totalWords > 0 ? (correctCount / (correctCount + incorrectCount)) * 100 : 0
+    const accuracy = totalAttempts > 0 ? (correctCount / totalAttempts) * 100 : 0
 
     if (testMode) {
       return (

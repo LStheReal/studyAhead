@@ -99,29 +99,11 @@ const CreateStudyPlan = () => {
           { front_text: 'Food', back_text: 'Essen', difficulty: 'Medium' },
         ]
 
-        setProcessingStatus({ status: 'creating', message: 'Creating flashcards...' })
+        setProcessingStatus({ status: 'creating', message: 'Creating flashcards with questions and sentences...' })
 
-        // Create flashcards and collect their IDs
-        const flashcardIds = []
+        // Create flashcards (MCQs and sentences are generated automatically by the backend)
         for (const flashcard of mockFlashcards) {
-          const response = await api.post(`/flashcards/study-plan/${newPlanId}`, flashcard)
-          flashcardIds.push(response.data.id)
-        }
-
-        // Generate sentences and MCQs for each flashcard
-        setProcessingStatus({ status: 'creating', message: 'Generating sentences and questions...' })
-
-        try {
-          for (const flashcardId of flashcardIds) {
-            // Generate 1 sentence per flashcard (10 total)
-            await api.post(`/flashcards/${flashcardId}/generate-sentences`)
-
-            // Generate MCQ questions (3 types per flashcard = 30 total)
-            await api.post(`/flashcards/${flashcardId}/generate-mcq`)
-          }
-        } catch (genError) {
-          console.error('Error generating content:', genError)
-          // Continue anyway - flashcards were created
+          await api.post(`/flashcards/study-plan/${newPlanId}`, flashcard)
         }
 
         setProcessingStatus({ status: 'complete', message: 'Example plan created!' })

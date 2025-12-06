@@ -53,7 +53,13 @@ async def create_flashcard(
     db.refresh(flashcard)
     
     # Generate MCQs and sentences for vocabulary flashcards
-    if plan.category == MaterialCategory.VOCABULARY:
+    # Check if category is vocabulary (handle both string and enum)
+    is_vocabulary = (
+        plan.category == MaterialCategory.VOCABULARY or 
+        (isinstance(plan.category, str) and plan.category.upper() == "VOCABULARY")
+    )
+    
+    if is_vocabulary:
         try:
             # Generate 3 MCQ questions
             questions_data = ai_service.generate_mcq_questions(

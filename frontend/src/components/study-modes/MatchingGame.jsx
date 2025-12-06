@@ -12,6 +12,8 @@ const MatchingGame = () => {
   // Game State
   const [queue, setQueue] = useState([]) // For UI and completion check
   const queueRef = useRef([]) // For logic (source of truth to avoid race conditions)
+  const retryQueueRef = useRef([]) // Pairs that were matched wrong - go to end of queue
+  const flashcardsMapRef = useRef({}) // Store flashcard data by pairId for retry
   // Columns now hold "slots". Each slot is an object or null.
   // To ensure stability, we initialize with placeholders if needed.
   const [leftSlots, setLeftSlots] = useState([])
@@ -32,7 +34,7 @@ const MatchingGame = () => {
   const timerRef = useRef(null)
 
   // Constants
-  const BOARD_SIZE = 5 // Number of pairs on board at once
+  const BOARD_SIZE = 5 // Number of pairs on board at once (batches of 5)
   const REFILL_THRESHOLD = 5 // Wait for ALL 5 slots to be empty before refilling
 
   useEffect(() => {
@@ -65,6 +67,13 @@ const MatchingGame = () => {
   const initializeGame = (flashcards) => {
     const shuffledPairs = [...flashcards].sort(() => Math.random() - 0.5)
     setTotalPairs(shuffledPairs.length)
+
+    // Store flashcard data for retry logic
+    const flashcardsMap = {}
+    shuffledPairs.forEach(fc => {
+      flashcardsMap[fc.id] = fc
+    })
+    flashcardsMapRef.current = flashcardsMap
 
     // We need to fill slots initially.
     // If fewer pairs than BOARD_SIZE, we just fill what we can.
@@ -106,6 +115,7 @@ const MatchingGame = () => {
 
     setQueue(remainingQueue)
     queueRef.current = remainingQueue
+    retryQueueRef.current = []
     setFailedPairIds(new Set())
     setMasteredCount(0)
     setSelectedCard(null)
@@ -230,12 +240,12 @@ const MatchingGame = () => {
     // 3. OR Board is empty (e.g. 5 matches made, threshold might be 3, but if we cleared all 5 fast?)
     //    Actually if emptyLeftCount >= REFILL_THRESHOLD, we refill.
 
-    // Also check if we have items in queue to refill with.
-    if (queueRef.current.length > 0 && emptyLeftCount >= REFILL_THRESHOLD) {
+    // Also check if we have items in queue to refill with (including retry queue).
+    const hasItemsToRefill = queueRef.current.length > 0 || retryQueueRef.current.length > 0
+    if (hasItemsToRefill && emptyLeftCount >= REFILL_THRESHOLD) {
       batchRefill()
-    } else if (queueRef.current.length > 0 && emptyLeftCount === BOARD_SIZE) {
-      // Special case: if board is completely empty but threshold wasn't triggered (e.g. threshold > board size? Impossible)
-      // Or if we just want to ensure we never have an empty board if queue exists.
+    } else if (hasItemsToRefill && emptyLeftCount === BOARD_SIZE) {
+      // Special case: if board is completely empty but threshold wasn't triggered
       batchRefill()
     }
   }, [leftSlots, rightSlots, completed, loading])
@@ -247,13 +257,19 @@ const MatchingGame = () => {
 
     if (emptyLeftIndices.length === 0) return
 
-    const countToRefill = Math.min(emptyLeftIndices.length, queueRef.current.length)
+    // Prioritize retry queue, then regular queue
+    const availablePairs = [...retryQueueRef.current, ...queueRef.current]
+    const countToRefill = Math.min(emptyLeftIndices.length, availablePairs.length)
     if (countToRefill === 0) return
 
-    // Get pairs from queue
+    // Get pairs (retry queue first)
     const newPairs = []
     for (let i = 0; i < countToRefill; i++) {
-      newPairs.push(queueRef.current.shift())
+      if (retryQueueRef.current.length > 0) {
+        newPairs.push(retryQueueRef.current.shift())
+      } else {
+        newPairs.push(queueRef.current.shift())
+      }
     }
     setQueue([...queueRef.current]) // Sync UI queue
 
@@ -275,30 +291,11 @@ const MatchingGame = () => {
     }))
 
     // Shuffle assignments
-    // We have `countToRefill` items and `countToRefill` (or more) empty slots.
-    // We should pick `countToRefill` slots from the available empty ones.
-    // Actually, we usually refill all empty slots if we have enough cards.
-    // So we take the first `countToRefill` empty indices.
-
-    // Shuffle the cards before placing them into the slots? 
-    // OR shuffle the slots?
-    // Let's shuffle the cards and place them into the available slots sequentially.
-    // But wait, if we always fill slot 0 then slot 1, it's predictable if we know which slot cleared.
-    // We want to randomize WHICH card goes into WHICH empty slot.
-    // Since we are filling ALL empty slots (up to count), we just need to shuffle the cards.
-    // But we also need to ensure that Term A and Def A don't necessarily go to the "same" relative slot index if possible?
-    // Actually, `emptyLeftIndices` are fixed positions (e.g. 0, 2, 4).
-    // If we shuffle `newTerms` and place them into 0, 2, 4.
-    // And shuffle `newDefs` and place them into 0, 2, 4.
-    // Then Term A might go to 0, Def A might go to 4. That is random. Good.
-
     const shuffledTerms = [...newTerms].sort(() => Math.random() - 0.5)
     const shuffledDefs = [...newDefs].sort(() => Math.random() - 0.5)
 
     setLeftSlots(prev => {
       const next = [...prev]
-      // We only fill `countToRefill` slots.
-      // If we have more empty slots than pairs (queue running out), we only fill some.
       for (let i = 0; i < countToRefill; i++) {
         const slotIndex = emptyLeftIndices[i]
         next[slotIndex] = shuffledTerms[i]
@@ -320,18 +317,24 @@ const MatchingGame = () => {
     updateSlotState(card1.colType, card1.slotIndex, 'wrong')
     updateSlotState(card2.colType, card2.slotIndex, 'wrong')
 
+    const pairId = card1.pairId
     setFailedPairIds(prev => {
       const newSet = new Set(prev)
-      newSet.add(card1.pairId)
-      newSet.add(card2.pairId)
+      newSet.add(pairId)
       return newSet
     })
+
+    // Add this pair to retry queue (will appear in next batch)
+    const flashcard = flashcardsMapRef.current[pairId]
+    if (flashcard && !retryQueueRef.current.find(fc => fc.id === pairId)) {
+      retryQueueRef.current.push(flashcard)
+    }
 
     setTimeout(() => {
       updateSlotState(card1.colType, card1.slotIndex, 'default')
       updateSlotState(card2.colType, card2.slotIndex, 'default')
       setSelectedCard(null)
-    }, 1000) // Increased delay for wrong match too
+    }, 1000)
   }
 
 

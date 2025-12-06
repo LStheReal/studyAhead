@@ -10,6 +10,7 @@ import StudyPlanDetail from './pages/StudyPlanDetail'
 import CreateStudyPlan from './pages/CreateStudyPlan'
 import Profile from './pages/Profile'
 import StudyMode from './pages/StudyMode'
+import EditPlan from './pages/EditPlan'
 import Layout from './components/Layout'
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
               <Route index element={<Dashboard />} />
               <Route path="plans" element={<Plans />} />
               <Route path="plans/:id" element={<StudyPlanDetail />} />
+              <Route path="plans/:id/edit" element={<EditPlan />} />
               <Route path="create" element={<CreateStudyPlan />} />
               <Route path="profile" element={<Profile />} />
               <Route path="study/:planId/:mode" element={<StudyMode />} />
