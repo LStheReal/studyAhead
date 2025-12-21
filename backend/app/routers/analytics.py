@@ -74,7 +74,7 @@ async def get_dashboard_stats(
     today = datetime.utcnow().date()
     today_tasks = db.query(Task).join(StudyPlan).filter(
         StudyPlan.user_id == current_user.id,
-        Task.scheduled_date == today,
+        func.date(Task.scheduled_date) == today,
         Task.completion_status == False
     ).order_by(Task.order).all()
     

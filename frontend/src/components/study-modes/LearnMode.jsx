@@ -197,6 +197,19 @@ const LearnMode = () => {
         const newCards = flashcards.filter((_, i) => i !== currentIndex)
         if (newCards.length === 0) {
           setCompleted(true)
+
+          // Mark task as complete if taskId is present
+          if (taskId) {
+            try {
+              await api.post(`/tasks/${taskId}/complete`, {
+                time_spent: Math.round((Date.now() - startTime) / 1000)
+              })
+              console.log('Task marked as complete')
+            } catch (error) {
+              console.error('Failed to mark task as complete:', error)
+            }
+          }
+
           setIsProcessing(false)
           setDragOffset({ x: 0, y: 0, rotation: 0 })
           return

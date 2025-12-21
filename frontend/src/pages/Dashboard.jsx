@@ -127,20 +127,25 @@ const Dashboard = () => {
               </div>
             )}
           </div>
-          {stats.today_tasks.length > 0 && (
-            <button
-              onClick={() => {
-                if (stats.active_study_plan && stats.today_tasks[0].mode === 'pre_assessment') {
-                  navigate(`/plans/${stats.active_study_plan.id}/pre-assessment`)
-                } else {
-                  navigate(`/study/${stats.active_study_plan.id}/${stats.today_tasks[0].mode}?taskId=${stats.today_tasks[0].id}`)
-                }
-              }}
-              className="w-full btn-primary"
-            >
-              Start Next Task
-            </button>
-          )}
+          {stats.today_tasks.length > 0 && (() => {
+            const nextTask = stats.today_tasks[0]
+            const isPreAssessment = nextTask.mode === 'pre_assessment' || nextTask.title === 'Pre-Assessment Test'
+
+            return (
+              <button
+                onClick={() => {
+                  if (isPreAssessment) {
+                    navigate(`/plans/${stats.active_study_plan.id}/pre-assessment`)
+                  } else {
+                    navigate(`/study/${stats.active_study_plan.id}/${nextTask.mode}?taskId=${nextTask.id}`)
+                  }
+                }}
+                className="w-full btn-primary"
+              >
+                Start Next Task
+              </button>
+            )
+          })()}
         </div>
       )}
 
@@ -149,40 +154,44 @@ const Dashboard = () => {
         <h3 className="font-semibold text-lg mb-4">Today's Schedule</h3>
         {stats.today_tasks.length > 0 ? (
           <div className="space-y-3">
-            {stats.today_tasks.map((task) => (
-              <button
-                key={task.id}
-                onClick={() => {
-                  if (task.mode === 'pre_assessment') {
-                    navigate(`/plans/${task.study_plan_id}/pre-assessment`)
-                  } else {
-                    navigate(`/study/${task.study_plan_id}/${task.mode}?taskId=${task.id}`)
-                  }
-                }}
-                className="w-full text-left p-3 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-                      {task.mode === 'pre_assessment' ? (
-                        <ClipboardCheck size={20} className="text-blue-600 dark:text-blue-400" />
-                      ) : (
-                        <Clock size={20} className="text-blue-600 dark:text-blue-400" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-medium">{task.title}</div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400">
-                        {task.mode.replace('_', ' ')} • {task.estimated_minutes} min
+            {stats.today_tasks.map((task) => {
+              const isPreAssessment = task.mode === 'pre_assessment' || task.title === 'Pre-Assessment Test'
+
+              return (
+                <button
+                  key={task.id}
+                  onClick={() => {
+                    if (isPreAssessment) {
+                      navigate(`/plans/${task.study_plan_id}/pre-assessment`)
+                    } else {
+                      navigate(`/study/${task.study_plan_id}/${task.mode}?taskId=${task.id}`)
+                    }
+                  }}
+                  className="w-full text-left p-3 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                        {isPreAssessment ? (
+                          <ClipboardCheck size={20} className="text-blue-600 dark:text-blue-400" />
+                        ) : (
+                          <Clock size={20} className="text-blue-600 dark:text-blue-400" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-medium">{task.title}</div>
+                        <div className="text-sm text-slate-600 dark:text-slate-400">
+                          {isPreAssessment ? 'Pre-Assessment' : task.mode.replace('_', ' ')} • {task.estimated_minutes} min
+                        </div>
                       </div>
                     </div>
+                    {!task.completion_status && (
+                      <AlertCircle size={20} className="text-yellow-500" />
+                    )}
                   </div>
-                  {!task.completion_status && (
-                    <AlertCircle size={20} className="text-yellow-500" />
-                  )}
-                </div>
-              </button>
-            ))}
+                </button>
+              )
+            })}
           </div>
         ) : (
           <div className="text-center py-8 text-slate-600 dark:text-slate-400">

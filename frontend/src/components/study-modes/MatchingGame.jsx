@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
 import { ArrowLeft, RotateCcw, Trophy } from 'lucide-react'
 
@@ -9,6 +9,8 @@ const REFILL_THRESHOLD = 3
 const MatchingGame = ({ preLoadedCards, onComplete, isTestMode }) => {
   const { planId: paramPlanId, id: paramId } = useParams()
   const planId = paramPlanId || paramId
+  const [searchParams] = useSearchParams()
+  const taskId = searchParams.get('taskId')
   const navigate = useNavigate()
 
   const [leftSlots, setLeftSlots] = useState([])
@@ -316,6 +318,15 @@ const MatchingGame = ({ preLoadedCards, onComplete, isTestMode }) => {
       onComplete({ masteredCount, failedCount: failedPairIds.size, elapsedTime })
     } else if (window.testFlowCallback) {
       window.testFlowCallback({ masteredCount, failedCount: failedPairIds.size, elapsedTime })
+    } else if (taskId && !isTestMode) {
+      // Mark task as complete for standalone mode
+      api.post(`/tasks/${taskId}/complete`, {
+        time_spent: Math.round(elapsedTime / 1000)
+      }).then(() => {
+        console.log('Task marked as complete')
+      }).catch(err => {
+        console.error('Failed to mark task as complete:', err)
+      })
     }
   }
 

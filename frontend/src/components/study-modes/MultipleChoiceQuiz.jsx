@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
 import { logStudyActivity } from '../../utils/tracking'
 import { ArrowLeft, CheckCircle2, XCircle, RotateCcw, Trophy, Menu, Settings } from 'lucide-react'
@@ -7,6 +7,8 @@ import { ArrowLeft, CheckCircle2, XCircle, RotateCcw, Trophy, Menu, Settings } f
 const MultipleChoiceQuiz = ({ preLoadedCards, onComplete, isTestMode }) => {
   const { planId: paramPlanId, id: paramId } = useParams()
   const planId = paramPlanId || paramId
+  const [searchParams] = useSearchParams()
+  const taskId = searchParams.get('taskId')
   const navigate = useNavigate()
 
   const [currentQuestion, setCurrentQuestion] = useState(null)
@@ -78,6 +80,15 @@ const MultipleChoiceQuiz = ({ preLoadedCards, onComplete, isTestMode }) => {
         onComplete(currentProgressMap)
       } else if (window.testFlowCallback) {
         window.testFlowCallback(currentProgressMap)
+      } else if (taskId && !isTestMode) {
+        // Mark task as complete for standalone mode
+        api.post(`/tasks/${taskId}/complete`, {
+          time_spent: Math.round((Date.now() - startTime) / 1000)
+        }).then(() => {
+          console.log('Task marked as complete')
+        }).catch(err => {
+          console.error('Failed to mark task as complete:', err)
+        })
       }
       return
     }

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
 import { ArrowLeft, RotateCcw, Trophy, CheckCircle2, XCircle } from 'lucide-react'
 
@@ -47,6 +47,8 @@ const compareAnswers = (userAnswer, correctAnswer) => {
 const FillTheGaps = ({ preLoadedCards, onComplete, isTestMode }) => {
   const { planId: paramPlanId, id: paramId } = useParams()
   const planId = paramPlanId || paramId
+  const [searchParams] = useSearchParams()
+  const taskId = searchParams.get('taskId')
   const navigate = useNavigate()
 
   const [flashcards, setFlashcards] = useState([])
@@ -205,6 +207,13 @@ const FillTheGaps = ({ preLoadedCards, onComplete, isTestMode }) => {
           onComplete(wordStatus)
         } else if (window.testFlowCallback) {
           window.testFlowCallback(wordStatus)
+        } else if (taskId && !isTestMode) {
+          // Mark task as complete for standalone mode
+          api.post(`/tasks/${taskId}/complete`, {}).then(() => {
+            console.log('Task marked as complete')
+          }).catch(err => {
+            console.error('Failed to mark task as complete:', err)
+          })
         }
         return
       }

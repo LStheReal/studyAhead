@@ -420,5 +420,38 @@ async def generate_mock_content(
              
         generated_count += 1
     
+    # Set plan status to ACTIVE and create pre-assessment task
+    from app.models import StudyPlanStatus, Task, TaskType, StudyMode
+    from datetime import datetime, timezone
+    
+    plan.status = StudyPlanStatus.ACTIVE
+    
+    # Create pre-assessment test task for day 1
+    today = datetime.now(timezone.utc).date()
+    
+    # Check if task already exists
+    existing_task = db.query(Task).filter(
+        Task.study_plan_id == plan_id,
+        Task.title == "Pre-Assessment Test"
+    ).first()
+    
+    if not existing_task:
+        pre_assessment_task = Task(
+            study_plan_id=plan_id,
+            title="Pre-Assessment Test",
+            description="Take this test to assess your current level with the vocabulary. This will help us create a personalized study schedule.",
+            type=TaskType.COMPREHENSIVE_TEST,
+            mode=StudyMode.SHORT_TEST,
+            estimated_minutes=30,
+            day_number=1,
+            rationale="Pre-assessment to determine your current vocabulary level and adapt the study plan accordingly.",
+            scheduled_date=today,
+            order=0,
+            completion_status=False
+        )
+        db.add(pre_assessment_task)
+        plan.tasks_total = 1
+        plan.tasks_completed = 0
+    
     db.commit()
     return {"message": "Mock content generated successfully", "count": generated_count}
