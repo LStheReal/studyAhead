@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import api from '../../services/api'
-import { ArrowLeft, RotateCcw, Trophy, CheckCircle2, XCircle, HelpCircle } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Trophy, CheckCircle2, XCircle } from 'lucide-react'
 
 // LCS (Longest Common Subsequence) diff algorithm
 const computeLCS = (str1, str2) => {
@@ -39,7 +39,6 @@ const computeLCS = (str1, str2) => {
 
 const normalizeText = (text) => {
   return text
-    .toLowerCase()
     .replace(/ß/g, 'ss')
     .trim()
     .replace(/\s+/g, ' ')
@@ -81,41 +80,47 @@ const compareAnswers = (userAnswer, correctAnswer) => {
   return { isCorrect: false, diff: { user: userDiff, correct: correctDiff } }
 }
 
-const WritingPractice = () => {
-  const { planId } = useParams()
-  const [searchParams] = useSearchParams()
-  const taskId = searchParams.get('taskId')
-  const testMode = searchParams.get('testMode') === 'true'
+const WritingPractice = ({ preLoadedCards, onComplete, isTestMode }) => {
+  const { planId: paramPlanId, id: paramId } = useParams()
+  const planId = paramPlanId || paramId
   const navigate = useNavigate()
 
   const [flashcards, setFlashcards] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [userAnswer, setUserAnswer] = useState('')
-  const [submitted, setSubmitted] = useState(false)
   const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [sideSwapped, setSideSwapped] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
 
-  // Progress tracking
-  const [cardStatus, setCardStatus] = useState({}) // flashcardId -> { known: false, attempts: 0 }
+  const [cardStatus, setCardStatus] = useState({}) // { [id]: { known: bool, attempts: int } }
   const [correctCount, setCorrectCount] = useState(0)
   const [incorrectCount, setIncorrectCount] = useState(0)
   const [completed, setCompleted] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  // Test results
-  const [testResults, setTestResults] = useState([])
+  const [sideSwapped, setSideSwapped] = useState(false) // If true, show back (native) and ask for front (target)
 
   const inputRef = useRef(null)
 
   useEffect(() => {
-    fetchData()
-  }, [planId])
+    if (preLoadedCards) {
+      if (preLoadedCards.length === 0) {
+        setCompleted(true)
+        if (onComplete) onComplete({})
+        return
+      }
+      setFlashcards(preLoadedCards)
 
-  useEffect(() => {
-    if (!submitted && inputRef.current) {
-      inputRef.current.focus()
+      // Initialize status
+      const status = {}
+      preLoadedCards.forEach(card => {
+        status[card.id] = { known: false, attempts: 0 }
+      })
+      setCardStatus(status)
+      setLoading(false)
+    } else {
+      fetchData()
     }
-  }, [currentIndex, submitted])
+  }, [planId, preLoadedCards])
 
   const fetchData = async () => {
     try {
@@ -160,19 +165,9 @@ const WritingPractice = () => {
       // Update mastery
       api.post(`/flashcards/${cardId}/update-mastery?mastery_level=${Math.min(100, (currentCard.mastery_level || 0) + 10)}`)
         .catch(console.error)
-
-      // Track test results
-      if (testMode) {
-        setTestResults(prev => [...prev, { flashcardId: cardId, correct: true }])
-      }
     } else {
       setIncorrectCount(prev => prev + 1)
       status.attempts = (status.attempts || 0) + 1
-
-      // Track test results
-      if (testMode) {
-        setTestResults(prev => [...prev, { flashcardId: cardId, correct: false }])
-      }
     }
 
     setCardStatus(prev => ({ ...prev, [cardId]: status }))
@@ -184,11 +179,16 @@ const WritingPractice = () => {
     const cardId = currentCard.id
     const status = cardStatus[cardId]
 
-    if (result?.isCorrect) {
-      // Remove card from deck
+    if (result?.isCorrect || isTestMode) {
+      // Remove gap from deck
       const newCards = flashcards.filter((_, i) => i !== currentIndex)
       if (newCards.length === 0) {
         setCompleted(true)
+        if (onComplete) {
+          onComplete(cardStatus)
+        } else if (window.testFlowCallback) {
+          window.testFlowCallback(cardStatus)
+        }
         return
       }
 
@@ -225,10 +225,6 @@ const WritingPractice = () => {
     setCardStatus(prev => ({ ...prev, [cardId]: status }))
     setIncorrectCount(prev => prev + 1)
 
-    if (testMode) {
-      setTestResults(prev => [...prev, { flashcardId: cardId, correct: false }])
-    }
-
     // Show correct answer before continuing
     setResult({
       isCorrect: false,
@@ -249,7 +245,6 @@ const WritingPractice = () => {
     setCorrectCount(0)
     setIncorrectCount(0)
     setCompleted(false)
-    setTestResults([])
     setCurrentIndex(0)
     setUserAnswer('')
     setSubmitted(false)
@@ -260,15 +255,6 @@ const WritingPractice = () => {
     setFlashcards(shuffled)
   }
 
-  // Check completion
-  useEffect(() => {
-    if (flashcards.length > 0) {
-      const allKnown = flashcards.every(card => cardStatus[card.id]?.known)
-      if (allKnown && flashcards.length > 0) {
-        setCompleted(true)
-      }
-    }
-  }, [cardStatus, flashcards])
 
   if (loading) {
     return (
@@ -295,35 +281,12 @@ const WritingPractice = () => {
   }
 
   if (completed) {
+    if (isTestMode) return null
     const totalWords = Object.keys(cardStatus).length
     const firstTryCorrect = Object.values(cardStatus).filter(s => s.known && s.attempts === 0).length
     const totalAttempts = correctCount + incorrectCount
     const avgAttempts = totalWords > 0 ? (totalAttempts / totalWords).toFixed(1) : 0
     const accuracy = totalAttempts > 0 ? (correctCount / totalAttempts) * 100 : 0
-
-    if (testMode) {
-      return (
-        <div className="p-4">
-          <div className="card text-center py-12">
-            <Trophy size={64} className="mx-auto mb-4 text-yellow-500" />
-            <h2 className="text-2xl font-bold mb-2">Writing Practice Complete!</h2>
-            <p className="text-slate-600 dark:text-slate-400 mb-4">
-              Score: {correctCount} / {totalWords} ({accuracy.toFixed(0)}%)
-            </p>
-            <button
-              onClick={() => {
-                if (window.testFlowCallback) {
-                  window.testFlowCallback({ mode: 'write', results: testResults })
-                }
-              }}
-              className="btn-primary"
-            >
-              Continue to Next Phase
-            </button>
-          </div>
-        </div>
-      )
-    }
 
     return (
       <div className="p-4">

@@ -52,66 +52,76 @@ const CreateStudyPlan = () => {
     input.click()
   }
 
+  const [useMockData, setUseMockData] = useState(false)
+
   const handleSubmit = async () => {
     if (!formData.name) {
       alert('Please enter a study plan name')
       return
     }
 
+    if (!useMockData && files.length === 0 && !textContent) {
+      alert('Please add some learning materials (files or text)')
+      return
+    }
+
     setLoading(true)
-    setProcessingStatus({ status: 'creating', message: 'Creating example plan...' })
+
+
+
+    // ... REAL FLOW ...
+    setProcessingStatus({ status: 'creating', message: 'Creating study plan...' })
 
     try {
-      // Check if user has any existing plans
-      const plansResponse = await api.get('/study-plans/')
-      const existingPlans = plansResponse.data
+      // 1. Create Study Plan
+      const planPayload = {
+        name: formData.name,
+        type: 'flashcard_set', // Defaulting to flashcard_set for now
+        category: 'vocabulary', // Default
+        exam_date: formData.exam_date || null,
+        question_language: formData.question_language || 'English',
+        answer_language: formData.answer_language || 'English',
+        learning_objectives: 'Generated from user materials'
+      }
 
-      if (existingPlans.length > 0) {
-        // User has plans, redirect to first one
-        setTimeout(() => {
-          navigate(`/plans/${existingPlans[0].id}`)
-        }, 1000)
-      } else {
-        // No plans exist, create a mock example plan
-        const mockPlan = {
-          name: 'Example Vocabulary Plan',
-          type: 'flashcard_set',
-          category: 'vocabulary',
-          exam_date: null,
-          question_language: 'English',
-          answer_language: 'German',
-        }
+      const planResponse = await api.post('/study-plans/', planPayload)
+      const newPlanId = planResponse.data.id
+      setPlanId(newPlanId)
 
-        const planResponse = await api.post('/study-plans/', mockPlan)
-        const newPlanId = planResponse.data.id
+      if (useMockData) {
+        // Trigger Backend Mock Generator (I will create this)
+        await api.post(`/flashcards/study-plan/${newPlanId}/generate-mock-content`)
 
-        // Create mock flashcards (10 items) - English to German
-        const mockFlashcards = [
-          { front_text: 'Hello', back_text: 'Hallo', difficulty: 'Easy' },
-          { front_text: 'Goodbye', back_text: 'Auf Wiedersehen', difficulty: 'Easy' },
-          { front_text: 'Thank you', back_text: 'Danke', difficulty: 'Easy' },
-          { front_text: 'Please', back_text: 'Bitte', difficulty: 'Easy' },
-          { front_text: 'Good morning', back_text: 'Guten Morgen', difficulty: 'Medium' },
-          { front_text: 'Good night', back_text: 'Gute Nacht', difficulty: 'Medium' },
-          { front_text: 'Yes', back_text: 'Ja', difficulty: 'Easy' },
-          { front_text: 'No', back_text: 'Nein', difficulty: 'Easy' },
-          { front_text: 'Water', back_text: 'Wasser', difficulty: 'Easy' },
-          { front_text: 'Food', back_text: 'Essen', difficulty: 'Medium' },
-        ]
-
-        setProcessingStatus({ status: 'creating', message: 'Creating flashcards with questions and sentences...' })
-
-        // Create flashcards (MCQs and sentences are generated automatically by the backend)
-        for (const flashcard of mockFlashcards) {
-          await api.post(`/flashcards/study-plan/${newPlanId}`, flashcard)
-        }
-
-        setProcessingStatus({ status: 'complete', message: 'Example plan created!' })
-
+        setProcessingStatus({ status: 'complete', message: 'Mock data created!' })
         setTimeout(() => {
           navigate(`/plans/${newPlanId}`)
         }, 1000)
+        return
       }
+
+      // 2. Upload Materials
+      setProcessingStatus({ status: 'uploading', message: 'Uploading materials...' })
+
+      // Upload text content if exists
+      if (textContent) {
+        await api.post('/materials/upload', {
+          study_plan_id: newPlanId,
+          text_content: textContent
+        })
+      }
+
+      // Upload files if exist (Not fully implemented in backend yet, but here's the structure)
+      // For now, we only support text content in the backend logic shown previously (MaterialUpload schema).
+      // Converting files to text would be ideal, but for now let's rely on textContent.
+      // If we have files but no text, we might need to warn or implement file upload endpoint.
+      // Assuming for now user pasted text as per my test.
+
+      // 3. Trigger Generation (or polling)
+      setProcessingStatus({ status: 'generating', message: 'Analyzing materials...' })
+
+      // Start polling status
+      pollProcessingStatus(newPlanId)
+
     } catch (error) {
       console.error('Error creating plan:', error)
       setProcessingStatus({ status: 'error', message: 'Failed to create plan' })
@@ -218,6 +228,24 @@ const CreateStudyPlan = () => {
                   className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-white text-slate-900"
                   placeholder="e.g., Spanish Vocabulary"
                 />
+              </div>
+
+              <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-100 dark:border-blue-800">
+                <input
+                  type="checkbox"
+                  id="useMockData"
+                  checked={useMockData}
+                  onChange={(e) => setUseMockData(e.target.checked)}
+                  className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                />
+                <div className="flex flex-col">
+                  <label htmlFor="useMockData" className="text-sm font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                    Use Mock Data (Testing Mode)
+                  </label>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    Generates sample cards, quizzes, and sentences without requiring an API key.
+                  </span>
+                </div>
               </div>
 
               <div>

@@ -8,7 +8,11 @@ from PIL import Image
 import pillow_heif
 from app.database import get_db
 from app.auth import get_current_user
-from app.models import User, StudyPlan, MaterialSummary, Flashcard, MaterialCategory, StudyPlanStatus
+from app.models import (
+    User, StudyPlan, MaterialSummary, Flashcard, 
+    MaterialCategory, StudyPlanStatus, MCQQuestion, 
+    VocabularySentence, Task, TaskType, StudyMode
+)
 from app.schemas import MaterialUpload, MaterialSummaryResponse
 from app.ai_service import ai_service
 from app.config import settings
@@ -121,10 +125,12 @@ async def process_materials_background(
                 summary = MaterialSummary(
                     study_plan_id=study_plan_id,
                     category=MaterialCategory(category),
-                    topic=analysis.get("topic", ""),
-                    key_concepts=analysis.get("key_concepts", []),
-                    difficulty_level=analysis.get("difficulty_level", "intermediate"),
-                    estimated_study_time=analysis.get("estimated_study_time", 60)
+                    title=analysis.get("title", "Study Material"),
+                    main_topics=analysis.get("main_topics", []),
+                    learning_goals=analysis.get("learning_goals", []),
+                    difficulty_assessment=analysis.get("difficulty_assessment", "medium"),
+                    recommended_study_approach=analysis.get("recommended_study_approach", ""),
+                    checklist_items=analysis.get("checklist_items", [])
                 )
                 db.add(summary)
                 db.commit()
@@ -170,8 +176,8 @@ async def process_materials_background(
                     # Create flashcard
                     flashcard = Flashcard(
                         study_plan_id=study_plan_id,
-                        front=front,
-                        back=back,
+                        front_text=front,
+                        back_text=back,
                         difficulty=card_data.get("difficulty", "medium")
                     )
                     db.add(flashcard)
@@ -180,8 +186,10 @@ async def process_materials_background(
                     
                     # Generate MCQs
                     print(f"    Generating MCQs for flashcard {idx}...")
-                    mcqs = ai_service.generate_mcq_for_flashcard(
-                        front, back, question_language, answer_language
+                    mcqs = ai_service.generate_mcq_questions(
+                        {"front_text": front, "back_text": back}, 
+                        question_language, 
+                        answer_language
                     )
                     
                     for mcq_data in mcqs[:3]:  # Limit to 3 MCQs
@@ -189,14 +197,15 @@ async def process_materials_background(
                             flashcard_id=flashcard.id,
                             question_text=mcq_data.get("question_text", ""),
                             options=mcq_data.get("options", []),
-                            correct_answer=mcq_data.get("correct_answer", 0),
-                            question_type=mcq_data.get("question_type", "standard")
+                            correct_answer_index=mcq_data.get("correct_answer_index", 0),
+                            question_type=mcq_data.get("question_type", "standard"),
+                            rationale=mcq_data.get("rationale", "")
                         )
                         db.add(mcq)
                     
                     # Generate sentences
                     print(f"    Generating example sentences for flashcard {idx}...")
-                    sentences = ai_service.generate_sentences_for_flashcard(
+                    sentences = ai_service.generate_vocabulary_sentences(
                         front, back, answer_language
                     )
                     
@@ -210,6 +219,13 @@ async def process_materials_background(
                     
                     db.commit()
                     flashcard_count += 1
+            
+            # AUTOMATE PRE-ASSESSMENT GENERATION
+            print(f"  Generating pre-assessment for plan {study_plan_id}...")
+            from app.services.pre_assessment import PreAssessmentService
+            with SessionLocal() as db:
+                pre_service = PreAssessmentService(db)
+                pre_service.generate_pre_assessment(study_plan_id)
         
         if flashcard_count == 0:
             print(f"  Warning: All flashcards were empty for plan {study_plan_id}")
@@ -236,9 +252,45 @@ async def process_materials_background(
             with SessionLocal() as db:
                 plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
                 if plan:
-                    plan.status = StudyPlanStatus.AWAITING_APPROVAL
+                    if success and flashcard_count > 0:
+                        # Auto-activate and create pre-assessment task
+                        plan.status = StudyPlanStatus.ACTIVE
+                        
+                        # Create pre-assessment test task for day 1
+                        from datetime import timezone, datetime
+                        today = datetime.now(timezone.utc).date()
+                        
+                        # Check if task already exists
+                        existing_task = db.query(Task).filter(
+                            Task.study_plan_id == study_plan_id,
+                            Task.title == "Pre-Assessment Test"
+                        ).first()
+                        
+                        if not existing_task:
+                            pre_assessment_task = Task(
+                                study_plan_id=study_plan_id,
+                                title="Pre-Assessment Test",
+                                description="Take this test to assess your current level with the vocabulary. This will help us create a personalized study schedule.",
+                                type=TaskType.COMPREHENSIVE_TEST,
+                                mode=StudyMode.SHORT_TEST,
+                                estimated_minutes=30,
+                                day_number=1,
+                                rationale="Pre-assessment to determine your current vocabulary level and adapt the study plan accordingly.",
+                                scheduled_date=today,
+                                order=0,
+                                completion_status=False
+                            )
+                            db.add(pre_assessment_task)
+                            plan.tasks_total = 1
+                            plan.tasks_completed = 0
+                        
+                        print(f"  Status updated to ACTIVE and pre-assessment task created")
+                    else:
+                        # Fallback to awaiting approval if error (so user can retry or see summary)
+                        plan.status = StudyPlanStatus.AWAITING_APPROVAL
+                        print(f"  Status updated to AWAITING_APPROVAL (processing failed or zero flashcards)")
+
                     db.commit()
-                    print(f"  Status updated to AWAITING_APPROVAL")
                 else:
                     print(f"  ERROR: Plan {study_plan_id} not found for final status update")
         except Exception as final_error:
@@ -334,32 +386,4 @@ async def get_material_summary(
     
     return plan.material_summary
 
-@router.get("/{study_plan_id}/status")
-async def get_processing_status(
-    study_plan_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get current processing status of materials."""
-    plan = db.query(StudyPlan).filter(
-        StudyPlan.id == study_plan_id,
-        StudyPlan.user_id == current_user.id
-    ).first()
-    
-    if not plan:
-        raise HTTPException(status_code=404, detail="Study plan not found")
-    
-    # Check if there's a category error (non-vocabulary material)
-    error_message = None
-    if plan.status == StudyPlanStatus.AWAITING_APPROVAL and plan.material_summary:
-        if plan.material_summary.category != MaterialCategory.VOCABULARY:
-            error_message = f"Type not supported yet, only supports vocab. Detected category: {plan.material_summary.category.value}"
-    
-    return {
-        "status": plan.status.value,
-        "current_step": plan.current_step,
-        "has_summary": plan.material_summary is not None,
-        "flashcard_count": len(plan.flashcards),
-        "error": error_message
-    }
 

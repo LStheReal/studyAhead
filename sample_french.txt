@@ -1,0 +1,29 @@
+
+Basic French Vocabulary
+
+Bonjour - Hello
+Au revoir - Goodbye
+Merci - Thank you
+S'il vous plaît - Please
+Oui - Yes
+Non - No
+Chat - Cat
+Chien - Dog
+Maison - House
+École - School
+Livre - Book
+Stylo - Pen
+Ordinateur - Computer
+Ami - Friend
+Famille - Family
+Manger - To eat
+Boire - To drink
+Dormir - To sleep
+Aller - To go
+Venir - To come
+
+Simple Grammar Rules:
+Nouns in French have a gender: masculine or feminine.
+Le is for masculine, La is for feminine.
+Les is for plural.
+Verbs are conjugated based on the subject (Je, Tu, Il/Elle, Nous, Vous, Ils/Elles).

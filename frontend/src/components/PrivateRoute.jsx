@@ -12,6 +12,10 @@ const PrivateRoute = ({ children }) => {
     )
   }
 
+  if (user && !user.onboarding_completed && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace />
+  }
+
   return user ? children : <Navigate to="/login" replace />
 }
 

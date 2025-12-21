@@ -20,7 +20,7 @@ class Settings:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
     
     # Mock AI Configuration
-    # Default to True if OPENAI_API_KEY is missing or if explicitly set
+    # Always default to True as requested to unblock usage
     USE_MOCK_AI: bool = os.getenv("USE_MOCK_AI", "True").lower() == "true"
 
     @property

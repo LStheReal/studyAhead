@@ -1,57 +1,54 @@
 import { useEffect, useState, useRef } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import api from '../../services/api'
-import { ArrowLeft, Timer, RotateCcw, Trophy } from 'lucide-react'
+import { ArrowLeft, RotateCcw, Trophy } from 'lucide-react'
 
-const MatchingGame = () => {
-  const { planId } = useParams()
-  const [searchParams] = useSearchParams()
-  const testMode = searchParams.get('testMode') === 'true'
+const BOARD_SIZE = 5
+const REFILL_THRESHOLD = 3
+
+const MatchingGame = ({ preLoadedCards, onComplete, isTestMode }) => {
+  const { planId: paramPlanId, id: paramId } = useParams()
+  const planId = paramPlanId || paramId
   const navigate = useNavigate()
 
-  // Game State
-  const [queue, setQueue] = useState([]) // For UI and completion check
-  const queueRef = useRef([]) // For logic (source of truth to avoid race conditions)
-  const retryQueueRef = useRef([]) // Pairs that were matched wrong - go to end of queue
-  const flashcardsMapRef = useRef({}) // Store flashcard data by pairId for retry
-  // Columns now hold "slots". Each slot is an object or null.
-  // To ensure stability, we initialize with placeholders if needed.
   const [leftSlots, setLeftSlots] = useState([])
   const [rightSlots, setRightSlots] = useState([])
-
-  const [selectedCard, setSelectedCard] = useState(null)
+  const [queue, setQueue] = useState([])
   const [failedPairIds, setFailedPairIds] = useState(new Set())
   const [masteredCount, setMasteredCount] = useState(0)
-  const [totalPairs, setTotalPairs] = useState(0)
-
-  const [loading, setLoading] = useState(true)
+  const [selectedCard, setSelectedCard] = useState(null)
   const [completed, setCompleted] = useState(false)
-
-  // Timer state
-  const [startTime, setStartTime] = useState(null)
   const [elapsedTime, setElapsedTime] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [startTime, setStartTime] = useState(Date.now())
+  const [totalPairs, setTotalPairs] = useState(0)
   const [timerRunning, setTimerRunning] = useState(false)
+
+  const queueRef = useRef([])
+  const retryQueueRef = useRef([])
   const timerRef = useRef(null)
-
-  // Constants
-  const BOARD_SIZE = 5 // Number of pairs on board at once (batches of 5)
-  const REFILL_THRESHOLD = 5 // Wait for ALL 5 slots to be empty before refilling
-
-  useEffect(() => {
-    fetchData()
-    return () => stopTimer()
-  }, [planId])
+  const flashcardsMapRef = useRef({})
 
   useEffect(() => {
     if (timerRunning) {
       timerRef.current = setInterval(() => {
         setElapsedTime(Date.now() - startTime)
-      }, 100)
+      }, 1000)
     } else {
       clearInterval(timerRef.current)
     }
     return () => clearInterval(timerRef.current)
   }, [timerRunning, startTime])
+
+  useEffect(() => {
+    if (preLoadedCards) {
+      initializeGame(preLoadedCards)
+      setLoading(false)
+    } else {
+      fetchData()
+    }
+    return () => stopTimer()
+  }, [planId, preLoadedCards])
 
   const fetchData = async () => {
     try {
@@ -65,6 +62,11 @@ const MatchingGame = () => {
   }
 
   const initializeGame = (flashcards) => {
+    if (flashcards.length === 0) {
+      setCompleted(true)
+      if (onComplete) onComplete({ masteredCount: 0, failedCount: 0, elapsedTime: 0 })
+      return
+    }
     const shuffledPairs = [...flashcards].sort(() => Math.random() - 0.5)
     setTotalPairs(shuffledPairs.length)
 
@@ -76,7 +78,6 @@ const MatchingGame = () => {
     flashcardsMapRef.current = flashcardsMap
 
     // We need to fill slots initially.
-    // If fewer pairs than BOARD_SIZE, we just fill what we can.
     const initialBoardPairs = shuffledPairs.slice(0, BOARD_SIZE)
     const remainingQueue = shuffledPairs.slice(BOARD_SIZE)
 
@@ -96,10 +97,6 @@ const MatchingGame = () => {
       type: 'def',
       state: 'default'
     }))
-
-    // Shuffle positions for the slots
-    // We want the slots to be random, so Term A is in slot 0, but Def A might be in slot 3.
-    // But we need to track which slot holds which card.
 
     // Helper to pad with nulls if not enough items
     const padSlots = (items) => {
@@ -184,8 +181,6 @@ const MatchingGame = () => {
     setSelectedCard(null)
 
     setTimeout(() => {
-      // Always count as mastered when matched correctly
-      // Even if it was wrong before, getting it right means it's learned
       setMasteredCount(prev => prev + 1)
 
       // Clear the matched slots
@@ -199,30 +194,7 @@ const MatchingGame = () => {
           ? null
           : item
       ))
-
-      // Check if we should refill
-      // We need to check the state AFTER clearing. 
-      // Since setState is async, we can't rely on leftSlots immediately.
-      // But we know we just cleared 1 slot in each column.
-      // So we can check the previous state or just pass a callback.
-      // Better: Use a separate effect or just check inside the setState callback? 
-      // No, let's just trigger a check function.
-      // We can pass the *current* state of slots to the check function by using the functional update pattern, 
-      // but that's tricky for triggering side effects.
-      // Instead, let's just assume we cleared them and check the *count* of nulls.
-      // We can count nulls in the *current* render cycle + 1 (the one we just made null).
-
-      // Actually, simpler: Just call batchRefill. It will check the slots.
-      // But batchRefill needs the updated state.
-      // So we'll use a useEffect to trigger refill if threshold is met.
-      // OR, we can pass the "next" state to batchRefill.
-
-      // Let's use a small timeout or just rely on the next render cycle?
-      // No, we want it to feel responsive.
-      // Let's force the refill logic to run after state update.
-      // We can use a useEffect on [leftSlots, rightSlots].
-
-    }, 1000) // Increased delay to 1s so user sees the color
+    }, 1000)
   }
 
   // Effect to handle batch refilling
@@ -230,28 +202,16 @@ const MatchingGame = () => {
     if (loading || completed) return
 
     const emptyLeftCount = leftSlots.filter(s => s === null).length
-    // const emptyRightCount = rightSlots.filter(s => s === null).length // Should be same
-
-    // Refill if:
-    // 1. Empty slots >= Threshold
-    // 2. OR Queue is empty (and we have empty slots) -> Wait, if queue is empty we can't refill.
-    //    But if queue has items and we have empty slots, we should refill eventually.
-    //    If queue is empty, we just wait for user to clear board.
-    // 3. OR Board is empty (e.g. 5 matches made, threshold might be 3, but if we cleared all 5 fast?)
-    //    Actually if emptyLeftCount >= REFILL_THRESHOLD, we refill.
-
-    // Also check if we have items in queue to refill with (including retry queue).
     const hasItemsToRefill = queueRef.current.length > 0 || retryQueueRef.current.length > 0
+
     if (hasItemsToRefill && emptyLeftCount >= REFILL_THRESHOLD) {
       batchRefill()
     } else if (hasItemsToRefill && emptyLeftCount === BOARD_SIZE) {
-      // Special case: if board is completely empty but threshold wasn't triggered
       batchRefill()
     }
   }, [leftSlots, rightSlots, completed, loading])
 
   const batchRefill = () => {
-    // Find empty indices
     const emptyLeftIndices = leftSlots.map((item, i) => item === null ? i : -1).filter(i => i !== -1)
     const emptyRightIndices = rightSlots.map((item, i) => item === null ? i : -1).filter(i => i !== -1)
 
@@ -326,7 +286,8 @@ const MatchingGame = () => {
 
     // Add this pair to retry queue (will appear in next batch)
     const flashcard = flashcardsMapRef.current[pairId]
-    if (flashcard && !retryQueueRef.current.find(fc => fc.id === pairId)) {
+    const isRetry = failedPairIds.has(pairId)
+    if (flashcard && !isTestMode && !retryQueueRef.current.find(fc => fc.id === pairId)) {
       retryQueueRef.current.push(flashcard)
     }
 
@@ -340,7 +301,6 @@ const MatchingGame = () => {
 
   useEffect(() => {
     // Check completion
-    // Completed if queue is empty AND all slots are empty AND we have mastered some pairs
     const allLeftEmpty = leftSlots.every(s => s === null)
     const allRightEmpty = rightSlots.every(s => s === null)
 
@@ -352,6 +312,11 @@ const MatchingGame = () => {
   const handleGameComplete = () => {
     stopTimer()
     setCompleted(true)
+    if (onComplete) {
+      onComplete({ masteredCount, failedCount: failedPairIds.size, elapsedTime })
+    } else if (window.testFlowCallback) {
+      window.testFlowCallback({ masteredCount, failedCount: failedPairIds.size, elapsedTime })
+    }
   }
 
   const stopTimer = () => {
@@ -380,6 +345,7 @@ const MatchingGame = () => {
   }
 
   if (completed) {
+    if (isTestMode) return null
     return (
       <div className="p-4">
         <div className="card text-center py-12">
@@ -405,22 +371,9 @@ const MatchingGame = () => {
               <RotateCcw size={20} className="inline mr-2" />
               Play Again
             </button>
-            {testMode ? (
-              <button
-                onClick={() => {
-                  if (window.testFlowCallback) {
-                    window.testFlowCallback({ mode: 'match', results: { time: elapsedTime } })
-                  }
-                }}
-                className="btn-primary"
-              >
-                Continue to Next Phase
-              </button>
-            ) : (
-              <button onClick={() => navigate(`/plans/${planId}`)} className="btn-primary">
-                Back to Overview
-              </button>
-            )}
+            <button onClick={() => navigate(`/plans/${planId}`)} className="btn-primary">
+              Back to Overview
+            </button>
           </div>
         </div>
       </div>
@@ -498,7 +451,6 @@ const Card = ({ card, onClick }) => {
   } else if (card.state === 'matched-retry') {
     cardClass += " bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 text-yellow-700 dark:text-yellow-300 transform scale-95"
   } else if (card.state === 'selected') {
-    // Blue border only, no background change (or very subtle)
     cardClass += " border-blue-500 border-2 shadow-md transform -translate-y-1"
   } else if (card.state === 'wrong') {
     cardClass += " bg-red-100 dark:bg-red-900/30 border-red-500 text-red-700 dark:text-red-300 animate-shake"

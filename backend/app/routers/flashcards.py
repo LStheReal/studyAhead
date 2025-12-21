@@ -345,3 +345,80 @@ async def get_study_plan_sentences(
         
     return result
 
+@router.post("/study-plan/{plan_id}/generate-mock-content")
+async def generate_mock_content(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate rich mock data (Cards + MCQs + Sentences) for testing without AI."""
+    plan = db.query(StudyPlan).filter(
+        StudyPlan.id == plan_id,
+        StudyPlan.user_id == current_user.id
+    ).first()
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Study plan not found")
+        
+    # Use AI Service (which uses Mock Service) to get content
+    # This ensures we get the full 20 cards and consistent sentence/MCQ generation
+    
+    # 1. Generate Flashcards matching the expanded mock service
+    mock_cards = ai_service.generate_vocabulary_flashcards(
+        {}, # dummy summary
+        "mock content",
+        "English",
+        "German" # Assuming English -> German for mock
+    )
+    
+    generated_count = 0
+    
+    for item in mock_cards:
+        # Create Flashcard
+        flashcard = Flashcard(
+            study_plan_id=plan.id,
+            front_text=item["front_text"], # Mock service now uses correct keys
+            back_text=item["back_text"],
+            difficulty=item["difficulty"]
+        )
+        db.add(flashcard)
+        db.commit()
+        db.refresh(flashcard)
+        
+        # 2. Generate Sentence
+        sentences = ai_service.generate_vocabulary_sentences(
+            flashcard.front_text, 
+            flashcard.back_text, 
+            "German"
+        )
+        
+        for sent_data in sentences:
+            sentence = VocabularySentence(
+                flashcard_id=flashcard.id,
+                sentence_text=sent_data.get("sentence_text", ""),
+                highlighted_words=sent_data.get("highlighted_words", [])
+            )
+            db.add(sentence)
+            
+        # 3. Generate MCQ
+        mcqs = ai_service.generate_mcq_questions(
+            {"front_text": flashcard.front_text, "back_text": flashcard.back_text},
+            "English",
+            "German"
+        )
+        
+        for q_data in mcqs:
+             question = MCQQuestion(
+                flashcard_id=flashcard.id,
+                question_text=q_data.get("question_text", ""),
+                options=q_data.get("options", []),
+                correct_answer_index=q_data.get("correct_answer_index", 0),
+                rationale=q_data.get("rationale", "Mock rationale"),
+                question_type=q_data.get("question_type", "standard")
+            )
+             db.add(question)
+             
+        generated_count += 1
+    
+    db.commit()
+    return {"message": "Mock content generated successfully", "count": generated_count}

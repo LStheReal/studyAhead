@@ -10,6 +10,14 @@ class UserCreate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
 
+class OnboardingData(BaseModel):
+    learning_speed: LearningSpeed
+    preferred_study_modes: List[str]
+    favorite_subjects: List[str]
+    school_language: str
+    study_hours_per_week: int
+    study_time_preference: str
+
 class UserResponse(BaseModel):
     id: int
     email: str
@@ -19,6 +27,11 @@ class UserResponse(BaseModel):
     learning_speed: LearningSpeed
     study_hours_per_week: int
     preferred_study_modes: List[str]
+    onboarding_completed: bool
+    
+    favorite_subjects: List[str] = []
+    school_language: str = "English"
+    study_time_preference: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -128,6 +141,7 @@ class FlashcardWithQuestions(FlashcardResponse):
 # Task Schemas
 class TaskResponse(BaseModel):
     id: int
+    study_plan_id: int
     title: str
     description: Optional[str]
     type: TaskType
@@ -192,4 +206,39 @@ class DashboardStats(BaseModel):
     active_study_plan: Optional[StudyPlanResponse]
     today_tasks: List[TaskResponse]
     upcoming_exams: List[StudyPlanResponse]
+    learning_efficiency: float = 1.0
+    subject_strengths: Dict[str, float] = {}
+
+# Pre-Assessment Schemas
+class PreAssessmentCreate(BaseModel):
+    study_plan_id: int
+
+class PreAssessmentResponseSubmit(BaseModel):
+    flashcard_id: int
+    is_correct: bool
+    response_time_ms: int
+
+class PreAssessmentSubmit(BaseModel):
+    responses: List[PreAssessmentResponseSubmit]
+
+class PreAssessmentResponseModel(BaseModel):
+    id: int
+    total_questions: int
+    status: str
+    questions_data: Optional[List[Dict[str, Any]]]
+    
+    class Config:
+        from_attributes = True
+
+# Tracking Schemas
+class TrackingLog(BaseModel):
+    study_plan_id: int
+    mode: str
+    flashcard_id: Optional[int]
+    is_correct: bool
+    response_time_ms: int
+    attempts_needed: int = 1
+
+class TrackingResponse(BaseModel):
+    status: str = "logged"
 

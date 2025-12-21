@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
+import { logStudyActivity } from '../../utils/tracking'
 import { ArrowLeft, ChevronLeft, ChevronRight, RotateCcw, Shuffle, CheckCircle2, XCircle, RefreshCw } from 'lucide-react'
 
 const LearnMode = () => {
-  const { planId } = useParams()
+  const { planId: paramPlanId, id: paramId } = useParams()
+  const planId = paramPlanId || paramId
   const [searchParams] = useSearchParams()
   const taskId = searchParams.get('taskId')
   const navigate = useNavigate()
@@ -25,6 +27,13 @@ const LearnMode = () => {
   const [dragStart, setDragStart] = useState(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0, rotation: 0 })
   const cardRef = useRef(null)
+
+  // Tracking
+  const [startTime, setStartTime] = useState(Date.now())
+
+  useEffect(() => {
+    setStartTime(Date.now())
+  }, [currentIndex])
 
   const fetchData = async () => {
     try {
@@ -169,6 +178,10 @@ const LearnMode = () => {
           attempts: (prev[cardId]?.attempts || 0) + 1
         }
       }))
+
+      // Log Tracking
+      const responseTime = Date.now() - startTime
+      logStudyActivity(planId, 'learn', cardId, isKnown, responseTime, (cardStatus[cardId]?.attempts || 0) + 1)
 
       // Update counters
       if (isKnown) {

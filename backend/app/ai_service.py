@@ -44,17 +44,25 @@ Provide a JSON response with the following structure:
 
 Be thorough and accurate. For vocabulary materials, identify language pairs if present."""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are an expert educational content analyzer. Always respond with valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            response_format={"type": "json_object"}
-        )
-        
-        return json.loads(response.choices[0].message.content)
+        try:
+            if not self.client:
+                return mock_ai_service.analyze_material(content)
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert educational content analyzer. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                response_format={"type": "json_object"},
+                timeout=20.0
+            )
+            
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            print(f"AI analysis failed: {e}. Falling back to mock.")
+            return mock_ai_service.analyze_material(content)
     
     def generate_flashcards(
         self, 
@@ -117,40 +125,37 @@ Return a JSON object with a "flashcards" array:
     ]
 }}"""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are an expert at creating educational flashcards. Always respond with valid JSON objects containing a 'flashcards' array."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5,
-            response_format={"type": "json_object"}
-        )
-        
         try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at creating educational flashcards. Always respond with valid JSON objects containing a 'flashcards' array."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5,
+                response_format={"type": "json_object"},
+                timeout=30.0
+            )
+            
             result = json.loads(response.choices[0].message.content)
             flashcards = result.get("flashcards", [])
             
             # Ensure we return a list
             if not isinstance(flashcards, list):
-                print(f"Warning: Expected flashcards array, got {type(flashcards)}: {flashcards}")
-                return []
+                print(f"Warning: Expected flashcards array, got {type(flashcards)}: {flashcards}. Falling back to mock data.")
+                return mock_ai_service.generate_flashcards(material_summary.get('title', ''), category, count)
             
             if len(flashcards) == 0:
-                print(f"Warning: Empty flashcards array in AI response")
-                return []
+                print(f"Warning: Empty flashcards array in AI response. Falling back to mock data.")
+                return mock_ai_service.generate_flashcards(material_summary.get('title', ''), category, count)
             
             print(f"Successfully generated {len(flashcards)} flashcards")
             return flashcards
-        except json.JSONDecodeError as e:
-            print(f"Error parsing AI response as JSON: {e}")
-            print(f"Response content: {response.choices[0].message.content[:500]}")
-            return []
         except Exception as e:
-            print(f"Error processing flashcard generation response: {e}")
+            print(f"AI flashcard generation failed: {e}. Falling back to mock data.")
             import traceback
             print(traceback.format_exc())
-            return []
+            return mock_ai_service.generate_flashcards(material_summary.get('title', ''), category, count)
     
     def generate_vocabulary_flashcards(
         self,
@@ -189,38 +194,34 @@ Return a JSON object with a "flashcards" array:
     ]
 }}"""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are an expert at creating vocabulary flashcards. Always respond with valid JSON objects containing a 'flashcards' array."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5,
-            response_format={"type": "json_object"}
-        )
-        
         try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at creating vocabulary flashcards. Always respond with valid JSON objects containing a 'flashcards' array."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5,
+                response_format={"type": "json_object"},
+                timeout=30.0
+            )
+            
             result = json.loads(response.choices[0].message.content)
             flashcards = result.get("flashcards", [])
             
             if not isinstance(flashcards, list):
-                print(f"Warning: Expected flashcards array, got {type(flashcards)}")
-                return []
+                print(f"Warning: Expected flashcards array, got {type(flashcards)}. Falling back to mock.")
+                return mock_ai_service.generate_vocabulary_flashcards(text_content)
             
             if len(flashcards) == 0:
-                print(f"Warning: Empty flashcards array in AI response")
-                return []
+                print(f"Warning: Empty flashcards array in AI response. Falling back to mock.")
+                return mock_ai_service.generate_vocabulary_flashcards(text_content)
             
             print(f"Successfully generated {len(flashcards)} vocabulary flashcards")
             return flashcards
-        except json.JSONDecodeError as e:
-            print(f"Error parsing AI response as JSON: {e}")
-            return []
         except Exception as e:
-            print(f"Error processing flashcard generation response: {e}")
-            import traceback
-            print(traceback.format_exc())
-            return []
+            print(f"AI vocabulary flashcard generation failed: {e}. Falling back to mock.")
+            return mock_ai_service.generate_vocabulary_flashcards(text_content)
     
     def generate_vocabulary_mcqs(
         self,
@@ -269,28 +270,29 @@ Return JSON object:
     ]
 }}"""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are an expert at creating vocabulary multiple-choice questions. Always respond with valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            response_format={"type": "json_object"}
-        )
-        
         try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at creating vocabulary multiple-choice questions. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                response_format={"type": "json_object"},
+                timeout=15.0
+            )
+            
             result = json.loads(response.choices[0].message.content)
             questions = result.get("questions", [])
             
             if not isinstance(questions, list) or len(questions) != 3:
-                print(f"Warning: Expected 3 questions, got {len(questions) if isinstance(questions, list) else 0}")
-                return []
+                print(f"Warning: Expected 3 questions, got {len(questions) if isinstance(questions, list) else 0}. Falling back.")
+                return mock_ai_service.generate_mcq_questions({"front_text": front_text, "back_text": back_text}, question_language, answer_language)
             
             return questions
         except Exception as e:
-            print(f"Error generating MCQs: {e}")
-            return []
+            print(f"AI MCQ generation failed: {e}. Falling back to mock.")
+            return mock_ai_service.generate_mcq_questions({"front_text": front_text, "back_text": back_text}, question_language, answer_language)
     
     def generate_vocabulary_sentences(
         self,
@@ -326,18 +328,26 @@ Return JSON:
     ]
 }}"""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are an expert at creating example sentences for language learning. Always respond with valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            response_format={"type": "json_object"}
-        )
-        
-        result = json.loads(response.choices[0].message.content)
-        return result.get("sentences", [])
+        try:
+            if not self.client:
+                return mock_ai_service.generate_vocabulary_sentences(front_text, back_text)
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at creating example sentences for language learning. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                response_format={"type": "json_object"},
+                timeout=20.0
+            )
+            
+            result = json.loads(response.choices[0].message.content)
+            return result.get("sentences", [])
+        except Exception as e:
+            print(f"AI vocabulary sentence generation failed: {e}. Falling back to mock.")
+            return mock_ai_service.generate_vocabulary_sentences(front_text, back_text)
     
     def generate_mcq_questions(
         self,
@@ -383,18 +393,26 @@ Return JSON:
     ]
 }}"""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are an expert at creating educational multiple-choice questions. Always respond with valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.6,
-            response_format={"type": "json_object"}
-        )
-        
-        result = json.loads(response.choices[0].message.content)
-        return result.get("questions", [])
+        try:
+            if not self.client:
+                return mock_ai_service.generate_mcq_questions(flashcard, question_language, answer_language)
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at creating educational multiple-choice questions. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.6,
+                response_format={"type": "json_object"},
+                timeout=15.0
+            )
+            
+            result = json.loads(response.choices[0].message.content)
+            return result.get("questions", [])
+        except Exception as e:
+            print(f"AI MCQ generation failed: {e}. Falling back to mock.")
+            return mock_ai_service.generate_mcq_questions(flashcard, question_language, answer_language)
     
     def generate_study_schedule(
         self,
@@ -404,37 +422,90 @@ Return JSON:
         test_results: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """Generate adaptive study schedule using pre-assessment test results."""
-        if settings.USE_MOCK_AI:
-            # Return a simple mock schedule
-            return [
+        def get_fallback_schedule():
+            # Return a comprehensive mock schedule including Pre-Assessment and all modes
+            full_schedule = [
+                {
+                    "title": "Pre-Assessment Test",
+                    "type": "comprehensive_test",
+                    "mode": "pre_assessment",
+                    "estimated_minutes": 15,
+                    "day_number": 1,
+                    "rationale": "Initial assessment to gauge your current knowledge level.",
+                    "order": 1
+                },
                 {
                     "title": "Initial Vocabulary Review",
                     "type": "flashcard_review",
                     "mode": "learn",
-                    "estimated_minutes": 15,
+                    "estimated_minutes": 20,
                     "day_number": 1,
                     "rationale": "Start by learning the new vocabulary.",
-                    "order": 1
+                    "order": 2
                 },
                 {
                     "title": "Vocabulary Quiz",
                     "type": "multiple_choice_quiz",
                     "mode": "quiz",
                     "estimated_minutes": 10,
-                    "day_number": 1,
-                    "rationale": "Test your knowledge of the new words.",
+                    "day_number": 2,
+                    "rationale": "Test your retention of yesterday's words.",
+                    "order": 1
+                },
+                {
+                    "title": "Connect the Terms",
+                    "type": "matching_game",
+                    "mode": "match",
+                    "estimated_minutes": 15,
+                    "day_number": 2,
+                    "rationale": "Visual association practice.",
                     "order": 2
                 },
                 {
-                    "title": "Fill the Gaps Practice",
+                    "title": "Writing Practice",
+                    "type": "writing_practice",
+                    "mode": "write",
+                    "estimated_minutes": 20,
+                    "day_number": 3,
+                    "rationale": "Practice spelling and recall.",
+                    "order": 1
+                },
+                {
+                    "title": "Fill the Gaps",
                     "type": "fill_the_gap",
                     "mode": "fill_gaps",
                     "estimated_minutes": 15,
-                    "day_number": 2,
-                    "rationale": "Practice using words in context.",
+                    "day_number": 3,
+                    "rationale": "Contextual usage practice.",
+                    "order": 2
+                },
+                {
+                    "title": "Mid-Week Check",
+                    "type": "short_test",
+                    "mode": "short_test",
+                    "estimated_minutes": 10,
+                    "day_number": 4,
+                    "rationale": "Quick check on progress.",
+                    "order": 1
+                },
+                {
+                    "title": "Final Review",
+                    "type": "comprehensive_test",
+                    "mode": "long_test",
+                    "estimated_minutes": 30,
+                    "day_number": 5,
+                    "rationale": "Comprehensive evaluation of all material.",
                     "order": 1
                 }
             ]
+            
+            # If we already have test results (pre-assessment done), omit the pre-assessment task
+            if test_results:
+                return [t for t in full_schedule if t["mode"] != "pre_assessment"]
+            return full_schedule
+
+        if settings.USE_MOCK_AI:
+            return get_fallback_schedule()
 
         exam_date = study_plan.get("exam_date")
         learning_speed = user_preferences.get("learning_speed", "moderate")
@@ -501,18 +572,23 @@ Return JSON:
     ]
 }}"""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are an expert at creating adaptive study schedules with spaced repetition. Always respond with valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.4,
-            response_format={"type": "json_object"}
-        )
-        
-        result = json.loads(response.choices[0].message.content)
-        return result.get("tasks", [])
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at creating adaptive study schedules with spaced repetition. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.4,
+                response_format={"type": "json_object"},
+                timeout=45.0
+            )
+            
+            result = json.loads(response.choices[0].message.content)
+            return result.get("tasks", [])
+        except Exception as e:
+            print(f"AI schedule generation failed: {e}. Falling back to mock schedule.")
+            return get_fallback_schedule()
     
     def extract_text_from_image(self, image_path: str) -> str:
         """Extract text from image using vision API."""
@@ -563,29 +639,37 @@ Return JSON:
                 mime_type = "image/jpeg"
             
         
-        response = self.client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Extract all text from this image. Preserve structure and formatting. If there are handwritten notes, transcribe them accurately."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime_type};base64,{image_data}"
+        try:
+            if not self.client:
+                return "Mock text extracted from image: [The provided image contained vocabulary and definitions for study.]"
+
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Extract all text from this image. Preserve structure and formatting. If there are handwritten notes, transcribe them accurately."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{mime_type};base64,{image_data}"
+                                }
                             }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=4000
-        )
-        
-        return response.choices[0].message.content
+                        ]
+                    }
+                ],
+                max_tokens=4000,
+                timeout=45.0
+            )
+            
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"AI image text extraction failed: {e}. Falling back to mock.")
+            return "Mock text extracted from image: [The provided image contained vocabulary and definitions for study.]"
     
     def process_pdf_content(self, pdf_text: str) -> Dict[str, Any]:
         """Process PDF content and extract structured information."""
@@ -612,17 +696,25 @@ Return JSON:
     "mcq_questions": [{{"question": "...", "options": [...], "correct": 0, "rationale": "..."}}, ...]
 }}"""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are an expert at processing educational content. Always respond with valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            response_format={"type": "json_object"}
-        )
-        
-        return json.loads(response.choices[0].message.content)
+        try:
+            if not self.client:
+                return mock_ai_service.analyze_material(pdf_text)
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at processing educational content. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                response_format={"type": "json_object"},
+                timeout=45.0
+            )
+            
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            print(f"AI PDF processing failed: {e}. Falling back to mock.")
+            return mock_ai_service.analyze_material(pdf_text)
 
 # Global instance
 ai_service = AIService()

@@ -19,9 +19,9 @@ api.interceptors.response.use(
   (error) => {
     // Only redirect to login on 401 if it's NOT from auth endpoints or /users/me
     // This allows the login/register pages and AuthContext to handle their own errors
-    const isAuthEndpoint = error.config?.url?.includes('/auth/login') || 
-                          error.config?.url?.includes('/auth/register') ||
-                          error.config?.url?.includes('/users/me')
+    const isAuthEndpoint = error.config?.url?.includes('/auth/login') ||
+      error.config?.url?.includes('/auth/register') ||
+      error.config?.url?.includes('/users/me')
 
     if (error.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('token')

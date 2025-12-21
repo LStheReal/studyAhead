@@ -247,3 +247,26 @@ async def get_plan_quiz(
     flashcards = db.query(Flashcard).filter(Flashcard.study_plan_id == plan_id).all()
     
     return flashcards
+
+@router.get("/{plan_id}/status")
+async def get_study_plan_status(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the current status of a study plan."""
+    plan = db.query(StudyPlan).filter(
+        StudyPlan.id == plan_id,
+        StudyPlan.user_id == current_user.id
+    ).first()
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Study plan not found")
+    
+    return {
+        "status": plan.status.value,
+        "progress_percentage": plan.progress_percentage,
+        "tasks_total": plan.tasks_total,
+        "tasks_completed": plan.tasks_completed,
+        "flashcard_count": len(plan.flashcards)
+    }

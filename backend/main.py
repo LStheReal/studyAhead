@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from app.database import engine, Base
-from app.routers import auth, users, study_plans, materials, flashcards, tasks, study_sessions, analytics, test_results
+from app.routers import auth, users, study_plans, materials, flashcards, tasks, study_sessions, analytics, test_results, pre_assessment, adaptive_learning, tracking
 
 # Create uploads directory
 UPLOAD_DIR = Path("./uploads")
@@ -53,6 +53,9 @@ app.include_router(flashcards.router, prefix="/api/flashcards", tags=["flashcard
 app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(study_sessions.router, prefix="/api/study-sessions", tags=["study-sessions"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
+app.include_router(pre_assessment.router, prefix="/api/pre-assessment", tags=["pre-assessment"])
+app.include_router(adaptive_learning.router, prefix="/api/adaptive", tags=["adaptive"])
+app.include_router(tracking.router, prefix="/api/tracking", tags=["tracking"])
 app.include_router(test_results.router, prefix="/api/test-results", tags=["test-results"])
 
 @app.get("/")

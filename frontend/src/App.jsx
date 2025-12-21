@@ -11,6 +11,8 @@ import CreateStudyPlan from './pages/CreateStudyPlan'
 import Profile from './pages/Profile'
 import StudyMode from './pages/StudyMode'
 import EditPlan from './pages/EditPlan'
+import PreAssessment from './pages/PreAssessment'
+import Onboarding from './pages/Onboarding'
 import Layout from './components/Layout'
 
 function App() {
@@ -32,11 +34,20 @@ function App() {
               <Route index element={<Dashboard />} />
               <Route path="plans" element={<Plans />} />
               <Route path="plans/:id" element={<StudyPlanDetail />} />
+              <Route path="plans/:id/pre-assessment" element={<PreAssessment />} />
               <Route path="plans/:id/edit" element={<EditPlan />} />
               <Route path="create" element={<CreateStudyPlan />} />
               <Route path="profile" element={<Profile />} />
               <Route path="study/:planId/:mode" element={<StudyMode />} />
             </Route>
+            <Route
+              path="/onboarding"
+              element={
+                <PrivateRoute>
+                  <Onboarding />
+                </PrivateRoute>
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>

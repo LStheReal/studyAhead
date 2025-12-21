@@ -34,6 +34,7 @@ class TaskType(str, enum.Enum):
     FILL_THE_GAP = "fill_the_gap"
     SHORT_TEST = "short_test"
     COMPREHENSIVE_TEST = "comprehensive_test"
+    PRE_ASSESSMENT = "pre_assessment"
 
 class StudyMode(str, enum.Enum):
     LEARN = "learn"
@@ -43,6 +44,7 @@ class StudyMode(str, enum.Enum):
     FILL_GAPS = "fill_gaps"
     SHORT_TEST = "short_test"
     LONG_TEST = "long_test"
+    PRE_ASSESSMENT = "pre_assessment"
 
 class User(Base):
     __tablename__ = "users"
@@ -59,11 +61,19 @@ class User(Base):
     study_hours_per_week = Column(Integer, default=10)
     preferred_study_modes = Column(JSON, default=list)  # List of study modes
     
+    # Adaptive Learning Fields
+    favorite_subjects = Column(JSON, default=list) # Array of strings
+    school_language = Column(String, default="English")
+    study_time_preference = Column(String, nullable=True) # morning, afternoon, evening, night
+    onboarding_completed = Column(Boolean, default=False)
+    onboarding_date = Column(DateTime(timezone=True), nullable=True)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     study_plans = relationship("StudyPlan", back_populates="user", cascade="all, delete-orphan")
     study_sessions = relationship("StudySession", back_populates="user", cascade="all, delete-orphan")
+    learning_profile = relationship("UserLearningProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 class StudyPlan(Base):
     __tablename__ = "study_plans"
@@ -95,7 +105,9 @@ class StudyPlan(Base):
     material_summary = relationship("MaterialSummary", back_populates="study_plan", uselist=False, cascade="all, delete-orphan")
     flashcards = relationship("Flashcard", back_populates="study_plan", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="study_plan", cascade="all, delete-orphan")
+    tasks = relationship("Task", back_populates="study_plan", cascade="all, delete-orphan")
     test_results = relationship("TestResult", back_populates="study_plan", cascade="all, delete-orphan")
+    pre_assessment = relationship("PreAssessment", back_populates="study_plan", uselist=False, cascade="all, delete-orphan")
 
 class MaterialSummary(Base):
     __tablename__ = "material_summaries"
@@ -224,4 +236,94 @@ class StudySession(Base):
     is_complete_day = Column(Boolean, default=False)
     
     user = relationship("User", back_populates="study_sessions")
+
+class UserLearningProfile(Base):
+    __tablename__ = "user_learning_profiles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    
+    # Initial self-reported data
+    self_reported_speed = Column(SQLEnum(LearningSpeed), nullable=True)
+    
+    # Calculated learning speeds per subject
+    subject_learning_speeds = Column(JSON, default=dict)  # {"vocabulary": 2.5, "math": 2.0, ...}
+    
+    # Global calculated learning speed (average across all plans)
+    calculated_global_speed = Column(Float, default=2.5)
+    
+    # Performance history
+    completed_plans_count = Column(Integer, default=0)
+    average_pre_assessment_score = Column(Float, default=0.0)
+    average_final_score = Column(Float, default=0.0)
+    
+    # Learning efficiency (how much faster/slower than predicted)
+    learning_efficiency_factor = Column(Float, default=1.0)
+    
+    # Mode preferences (updated based on performance)
+    mode_performance = Column(JSON, default=dict)  # {"quiz": 0.85, "flashcards": 0.78, ...}
+    
+    # Subject strengths (0-1 scale)
+    subject_strengths = Column(JSON, default=dict)  # {"vocabulary": 0.8, "math": 0.6, ...}
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    user = relationship("User", back_populates="learning_profile")
+
+class PreAssessment(Base):
+    __tablename__ = "pre_assessments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    study_plan_id = Column(Integer, ForeignKey("study_plans.id"), nullable=False)
+    
+    status = Column(String, default="pending") # pending, completed
+    total_questions = Column(Integer, default=0)
+    correct_score = Column(Float, default=0.0)
+    
+    # Store the generated questions snapshot
+    questions_data = Column(JSON, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    study_plan = relationship("StudyPlan", back_populates="pre_assessment")
+    responses = relationship("PreAssessmentResponse", back_populates="pre_assessment", cascade="all, delete-orphan")
+
+class PreAssessmentResponse(Base):
+    __tablename__ = "pre_assessment_responses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    pre_assessment_id = Column(Integer, ForeignKey("pre_assessments.id"), nullable=False)
+    flashcard_id = Column(Integer, ForeignKey("flashcards.id"), nullable=False)
+    
+    is_correct = Column(Boolean, nullable=False)
+    response_time_ms = Column(Integer, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    pre_assessment = relationship("PreAssessment", back_populates="responses")
+    flashcard = relationship("Flashcard")
+
+class StudySessionTracking(Base):
+    __tablename__ = "study_session_tracking"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    study_plan_id = Column(Integer, ForeignKey("study_plans.id"), nullable=False)
+    
+    mode = Column(String, nullable=False) # quiz, learn, write, etc.
+    flashcard_id = Column(Integer, ForeignKey("flashcards.id"), nullable=True)
+    
+    is_correct = Column(Boolean, nullable=True)
+    response_time_ms = Column(Integer, nullable=True)
+    attempts_needed = Column(Integer, default=1)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    user = relationship("User")
+    study_plan = relationship("StudyPlan")
+    flashcard = relationship("Flashcard")
 
