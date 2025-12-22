@@ -99,7 +99,7 @@ async def generate_schedule_background_with_results(
         
         # Update plan
         existing_tasks = db.query(Task).filter(Task.study_plan_id == study_plan_id).count()
-        plan.tasks_total = existing_tasks
+        plan.tasks_total_static = existing_tasks
         plan.status = StudyPlanStatus.ACTIVE
         db.commit()
         
@@ -176,7 +176,7 @@ async def generate_schedule_background(study_plan_id: int, user_id: int):
             db.add(task)
         
         # Update plan
-        plan.tasks_total = len(tasks_data)
+        plan.tasks_total_static = len(tasks_data)
         plan.status = StudyPlanStatus.ACTIVE
         db.commit()
         
@@ -265,9 +265,7 @@ async def complete_task(
     
     # Update study plan progress
     plan = task.study_plan
-    plan.tasks_completed += 1
-    if plan.tasks_total > 0:
-        plan.progress_percentage = (plan.tasks_completed / plan.tasks_total) * 100
+    plan.tasks_completed_static += 1
     
     # Check if this is a pre-assessment test
     is_pre_assessment = (

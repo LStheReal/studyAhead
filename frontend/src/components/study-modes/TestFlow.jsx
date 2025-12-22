@@ -32,12 +32,9 @@ const TestFlow = ({ isPreAssessment = false }) => {
       fillGaps: 3,
       total: 15
     },
+
     long: {
-      multipleChoice: 6,
-      matching: 15,
-      writing: 12,
-      fillGaps: 6,
-      total: 39
+      total: 0 // Will use all cards
     }
   }
 
@@ -60,12 +57,22 @@ const TestFlow = ({ isPreAssessment = false }) => {
   const [testStartTime, setTestStartTime] = useState(null)
   const [timeSpent, setTimeSpent] = useState(0)
 
-  const phases = [
+  /* eslint-disable no-unused-vars */
+  const allPhases = [
     { id: 'multipleChoice', name: 'Multiple Choice', component: MultipleChoiceQuiz },
     { id: 'matching', name: 'Matching Game', component: MatchingGame },
     { id: 'writing', name: 'Writing Practice', component: WritingPractice },
     { id: 'fillGaps', name: 'Fill the Gaps', component: FillTheGaps }
   ]
+  /* eslint-enable no-unused-vars */
+
+  // Define phases based on test type
+  const phases = testType === 'long'
+    ? [
+      { id: 'multipleChoice', name: 'Multiple Choice', component: MultipleChoiceQuiz },
+      { id: 'writing', name: 'Writing Practice', component: WritingPractice }
+    ]
+    : allPhases
 
   useEffect(() => {
     fetchData()
@@ -113,8 +120,7 @@ const TestFlow = ({ isPreAssessment = false }) => {
       const shuffled = [...cards].sort(() => Math.random() - 0.5)
       setFlashcards(shuffled)
 
-      // Select vocabulary for each mode (NO DUPLICATES)
-      const usedIndices = new Set()
+      // Select vocabulary for each mode
       const selections = {
         multipleChoice: [],
         matching: [],
@@ -122,44 +128,53 @@ const TestFlow = ({ isPreAssessment = false }) => {
         fillGaps: []
       }
 
-      // Select for Multiple Choice
-      let count = 0
-      for (let i = 0; i < shuffled.length && count < config.multipleChoice; i++) {
-        if (!usedIndices.has(i)) {
-          selections.multipleChoice.push(shuffled[i])
-          usedIndices.add(i)
-          count++
-        }
-      }
+      if (testType === 'long') {
+        // For Long Test, use ALL cards for both Quiz and Writing
+        selections.multipleChoice = [...shuffled]
+        selections.writing = [...shuffled] // Use same cards, maybe reshuffle if needed, but 'shuffled' is already random
+        // No matching or fillGaps for Long Test per requirements
+      } else {
+        // Short Test Logic (Sampling with No Duplicates)
+        const usedIndices = new Set()
 
-      // Select for Matching
-      count = 0
-      for (let i = 0; i < shuffled.length && count < config.matching; i++) {
-        if (!usedIndices.has(i)) {
-          selections.matching.push(shuffled[i])
-          usedIndices.add(i)
-          count++
+        // Select for Multiple Choice
+        let count = 0
+        for (let i = 0; i < shuffled.length && count < config.multipleChoice; i++) {
+          if (!usedIndices.has(i)) {
+            selections.multipleChoice.push(shuffled[i])
+            usedIndices.add(i)
+            count++
+          }
         }
-      }
 
-      // Select for Writing
-      count = 0
-      for (let i = 0; i < shuffled.length && count < config.writing; i++) {
-        if (!usedIndices.has(i)) {
-          selections.writing.push(shuffled[i])
-          usedIndices.add(i)
-          count++
+        // Select for Matching
+        count = 0
+        for (let i = 0; i < shuffled.length && count < config.matching; i++) {
+          if (!usedIndices.has(i)) {
+            selections.matching.push(shuffled[i])
+            usedIndices.add(i)
+            count++
+          }
         }
-      }
 
-      // Select for Fill Gaps (need to check for sentences)
-      // For now, just select available flashcards
-      count = 0
-      for (let i = 0; i < shuffled.length && count < config.fillGaps; i++) {
-        if (!usedIndices.has(i)) {
-          selections.fillGaps.push(shuffled[i])
-          usedIndices.add(i)
-          count++
+        // Select for Writing
+        count = 0
+        for (let i = 0; i < shuffled.length && count < config.writing; i++) {
+          if (!usedIndices.has(i)) {
+            selections.writing.push(shuffled[i])
+            usedIndices.add(i)
+            count++
+          }
+        }
+
+        // Select for Fill Gaps
+        count = 0
+        for (let i = 0; i < shuffled.length && count < config.fillGaps; i++) {
+          if (!usedIndices.has(i)) {
+            selections.fillGaps.push(shuffled[i])
+            usedIndices.add(i)
+            count++
+          }
         }
       }
 
@@ -298,7 +313,7 @@ const TestFlow = ({ isPreAssessment = false }) => {
     )
   }
 
-  if (flashcards.length < config.total) {
+  if (testType === 'short' && flashcards.length < config.total) {
     return (
       <div className="p-4">
         <div className="card text-center py-12">
@@ -449,6 +464,9 @@ const TestFlow = ({ isPreAssessment = false }) => {
         preLoadedCards={phaseFlashcards}
         onComplete={(results) => handlePhaseComplete({ mode: phaseId, results })}
         isTestMode={true}
+        // Specific props for Writing phase in Long Test
+        initialSideSwapped={phaseId === 'writing' && testType === 'long' ? false : undefined}
+        allowSwap={phaseId === 'writing' && testType === 'long' ? false : undefined}
       />
     )
   }

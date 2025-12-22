@@ -80,7 +80,7 @@ const compareAnswers = (userAnswer, correctAnswer) => {
   return { isCorrect: false, diff: { user: userDiff, correct: correctDiff } }
 }
 
-const WritingPractice = ({ preLoadedCards, onComplete, isTestMode }) => {
+const WritingPractice = ({ preLoadedCards, onComplete, isTestMode, initialSideSwapped = false, allowSwap = true }) => {
   const { planId: paramPlanId, id: paramId } = useParams()
   const planId = paramPlanId || paramId
   const [searchParams] = useSearchParams()
@@ -99,7 +99,7 @@ const WritingPractice = ({ preLoadedCards, onComplete, isTestMode }) => {
   const [completed, setCompleted] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  const [sideSwapped, setSideSwapped] = useState(false) // If true, show back (native) and ask for front (target)
+  const [sideSwapped, setSideSwapped] = useState(initialSideSwapped) // If true, show back (native) and ask for front (target)
 
   const inputRef = useRef(null)
 
@@ -358,12 +358,14 @@ const WritingPractice = ({ preLoadedCards, onComplete, isTestMode }) => {
             Card {currentIndex + 1} / {flashcards.length}
           </div>
 
-          <button
-            onClick={() => setSideSwapped(!sideSwapped)}
-            className="px-3 py-1 text-sm btn-secondary"
-          >
-            {sideSwapped ? 'Q: Answer' : 'Q: Question'} ↔️
-          </button>
+          {allowSwap && (
+            <button
+              onClick={() => setSideSwapped(!sideSwapped)}
+              className="px-3 py-1 text-sm btn-secondary"
+            >
+              {sideSwapped ? 'Q: Answer' : 'Q: Question'} ↔️
+            </button>
+          )}
         </div>
 
         <div className="flex justify-center gap-6 text-sm mt-2 font-medium">

@@ -56,7 +56,8 @@ async def get_study_plans(
     db: Session = Depends(get_db)
 ):
     """Get all study plans for current user."""
-    plans = db.query(StudyPlan).filter(StudyPlan.user_id == current_user.id).all()
+    from sqlalchemy.orm import joinedload
+    plans = db.query(StudyPlan).options(joinedload(StudyPlan.tasks)).filter(StudyPlan.user_id == current_user.id).all()
     return plans
 
 @router.get("/{plan_id}", response_model=StudyPlanResponse)

@@ -89,14 +89,17 @@ const CreateStudyPlan = () => {
       setPlanId(newPlanId)
 
       if (useMockData) {
-        // Trigger Backend Mock Generator (I will create this)
+        // Trigger Backend Mock Generator
+        setProcessingStatus({ status: 'generating', message: 'Generating mock content...' })
         await api.post(`/flashcards/study-plan/${newPlanId}/generate-mock-content`)
 
+        // Mock generation is complete, navigate immediately
         setProcessingStatus({ status: 'complete', message: 'Mock data created!' })
+        setLoading(false)
         setTimeout(() => {
           navigate(`/plans/${newPlanId}`)
-        }, 1000)
-        return
+        }, 500)
+        return // Exit here, don't continue to material upload flow
       }
 
       // 2. Upload Materials

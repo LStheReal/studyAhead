@@ -92,20 +92,34 @@ class StudyPlan(Base):
     answer_language = Column(String, nullable=True)
     
     status = Column(SQLEnum(StudyPlanStatus), default=StudyPlanStatus.GENERATING)
-    progress_percentage = Column(Float, default=0.0)
+    progress_percentage_static = Column("progress_percentage", Float, default=0.0)
     current_step = Column(String, nullable=True)
     
-    tasks_total = Column(Integer, default=0)
-    tasks_completed = Column(Integer, default=0)
+    tasks_total_static = Column("tasks_total", Integer, default=0)
+    tasks_completed_static = Column("tasks_completed", Integer, default=0)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
+    @property
+    def tasks_total(self):
+        return len(self.tasks)
+
+    @property
+    def tasks_completed(self):
+        return len([t for t in self.tasks if t.completion_status])
+
+    @property
+    def progress_percentage(self):
+        total = self.tasks_total
+        if total == 0:
+            return 0.0
+        return (self.tasks_completed / total) * 100
+
     user = relationship("User", back_populates="study_plans")
     material_summary = relationship("MaterialSummary", back_populates="study_plan", uselist=False, cascade="all, delete-orphan")
     flashcards = relationship("Flashcard", back_populates="study_plan", cascade="all, delete-orphan")
-    tasks = relationship("Task", back_populates="study_plan", cascade="all, delete-orphan")
-    tasks = relationship("Task", back_populates="study_plan", cascade="all, delete-orphan")
+    tasks = relationship("Task", back_populates="study_plan", cascade="all, delete-orphan", lazy="select")
     test_results = relationship("TestResult", back_populates="study_plan", cascade="all, delete-orphan")
     pre_assessment = relationship("PreAssessment", back_populates="study_plan", uselist=False, cascade="all, delete-orphan")
 

@@ -281,8 +281,8 @@ async def process_materials_background(
                                 completion_status=False
                             )
                             db.add(pre_assessment_task)
-                            plan.tasks_total = 1
-                            plan.tasks_completed = 0
+                            plan.tasks_total_static = 1
+                            plan.tasks_completed_static = 0
                         
                         print(f"  Status updated to ACTIVE and pre-assessment task created")
                     else:

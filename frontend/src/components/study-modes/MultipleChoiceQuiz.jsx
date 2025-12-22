@@ -72,7 +72,7 @@ const MultipleChoiceQuiz = ({ preLoadedCards, onComplete, isTestMode }) => {
     // For test mode, we only want one pass through each flashcard
     const remaining = isTestMode
       ? flashcardsData.filter(fc => !currentProgressMap[fc.id]?.hasBeenAnswered)
-      : flashcardsData.filter(fc => !currentProgressMap[fc.id]?.correctOnFirstTry)
+      : flashcardsData.filter(fc => !currentProgressMap[fc.id]?.isSolved)
 
     if (remaining.length === 0) {
       setCompleted(true)
@@ -190,6 +190,7 @@ const MultipleChoiceQuiz = ({ preLoadedCards, onComplete, isTestMode }) => {
 
     if (isCorrect) {
       setCorrectCount(prev => prev + 1)
+      newProgress[flashcardId].isSolved = true
       if (!newProgress[flashcardId].hasBeenWrongInCurrentRound) {
         newProgress[flashcardId].correctOnFirstTry = true
       }

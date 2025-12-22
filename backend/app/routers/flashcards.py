@@ -427,7 +427,7 @@ async def generate_mock_content(
     plan.status = StudyPlanStatus.ACTIVE
     
     # Create pre-assessment test task for day 1
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(timezone.utc)  # Use datetime, not date
     
     # Check if task already exists
     existing_task = db.query(Task).filter(
@@ -450,8 +450,6 @@ async def generate_mock_content(
             completion_status=False
         )
         db.add(pre_assessment_task)
-        plan.tasks_total = 1
-        plan.tasks_completed = 0
     
     db.commit()
     return {"message": "Mock content generated successfully", "count": generated_count}
