@@ -132,6 +132,9 @@ const StudyPlanDetail = () => {
     ? differenceInDays(new Date(plan.exam_date), new Date())
     : null
 
+  // Check if this is a simple plan (no exam date, no schedule)
+  const isSimplePlan = plan.plan_mode === 'simple'
+
   // Group tasks by day
   const tasksByDay = tasks.reduce((acc, task) => {
     const day = task.day_number || 0
@@ -189,27 +192,39 @@ const StudyPlanDetail = () => {
         </div>
       </div>
 
-      {/* Tab Header */}
-      <div className="flex p-1 bg-gray-100 dark:bg-slate-800 rounded-xl max-w-sm mb-6">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all ${activeTab === 'overview'
-            ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-400'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-        >
-          Dashboard
-        </button>
-        <button
-          onClick={() => setActiveTab('schedule')}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all ${activeTab === 'schedule'
-            ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-400'
-            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-        >
-          Schedule
-        </button>
-      </div>
+      {/* Tab Header - Only show for full plans */}
+      {!isSimplePlan ? (
+        <div className="flex p-1 bg-gray-100 dark:bg-slate-800 rounded-xl max-w-sm mb-6">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all ${activeTab === 'overview'
+              ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-400'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all ${activeTab === 'schedule'
+              ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-400'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+          >
+            Schedule
+          </button>
+        </div>
+      ) : (
+        /* Simple Plan Banner */
+        <div className="mb-6 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center gap-3">
+          <div className="text-amber-600 dark:text-amber-400">
+            <Clock size={20} />
+          </div>
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            This is a simple plan without scheduling. Add an exam date to unlock smart study features.
+          </p>
+        </div>
+      )}
 
       {activeTab === 'overview' ? (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -238,6 +253,23 @@ const StudyPlanDetail = () => {
                       ? "Our AI is analyzing your content to create the best study experience."
                       : "Our AI is crunching the data to build the perfect path for you."}
                   </p>
+                </div>
+              )
+            } else if (isSimplePlan) {
+              // Simple plan - show ready to study card without pre-assessment
+              return (
+                <div className="card bg-gradient-to-r from-green-500 to-emerald-600 text-white p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                      <BookOpen size={24} />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold mb-1">Ready to Study!</h2>
+                      <p className="text-green-100 opacity-90">
+                        {flashcards.length} flashcards ready. Pick a study mode below to start learning.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )
             } else if (preAssessmentTask && !isPreAssessmentDone) {
@@ -294,56 +326,58 @@ const StudyPlanDetail = () => {
             }
           })()}
 
-          {/* Progress Overview */}
-          <div className="card">
-            <h2 className="font-semibold text-lg mb-4">Progress Overview</h2>
-            {(() => {
-              const completedTasks = tasks.filter(t => t.completion_status).length
-              const totalTasks = tasks.length
-              const progressPercent = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0
+          {/* Progress Overview - Only for full plans */}
+          {!isSimplePlan && (
+            <div className="card">
+              <h2 className="font-semibold text-lg mb-4">Progress Overview</h2>
+              {(() => {
+                const completedTasks = tasks.filter(t => t.completion_status).length
+                const totalTasks = tasks.length
+                const progressPercent = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0
 
-              return (
-                <>
-                  <div className="flex items-center justify-center mb-4">
-                    <div className="relative w-32 h-32">
-                      <svg className="progress-ring w-32 h-32">
-                        <circle
-                          cx="64"
-                          cy="64"
-                          r="56"
-                          stroke="currentColor"
-                          strokeWidth="8"
-                          fill="none"
-                          className="text-gray-200 dark:text-slate-700"
-                        />
-                        <circle
-                          cx="64"
-                          cy="64"
-                          r="56"
-                          stroke="currentColor"
-                          strokeWidth="8"
-                          fill="none"
-                          strokeDasharray={`${2 * Math.PI * 56}`}
-                          strokeDashoffset={`${2 * Math.PI * 56 * (1 - progressPercent / 100)}`}
-                          className="text-blue-500"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="text-center">
-                          <div className="text-2xl font-bold">{Math.round(progressPercent)}%</div>
-                          <div className="text-xs text-slate-600 dark:text-slate-400">Complete</div>
+                return (
+                  <>
+                    <div className="flex items-center justify-center mb-4">
+                      <div className="relative w-32 h-32">
+                        <svg className="progress-ring w-32 h-32">
+                          <circle
+                            cx="64"
+                            cy="64"
+                            r="56"
+                            stroke="currentColor"
+                            strokeWidth="8"
+                            fill="none"
+                            className="text-gray-200 dark:text-slate-700"
+                          />
+                          <circle
+                            cx="64"
+                            cy="64"
+                            r="56"
+                            stroke="currentColor"
+                            strokeWidth="8"
+                            fill="none"
+                            strokeDasharray={`${2 * Math.PI * 56}`}
+                            strokeDashoffset={`${2 * Math.PI * 56 * (1 - progressPercent / 100)}`}
+                            className="text-blue-500"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold">{Math.round(progressPercent)}%</div>
+                            <div className="text-xs text-slate-600 dark:text-slate-400">Complete</div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="text-center text-sm text-slate-600 dark:text-slate-400">
-                    {completedTasks} / {totalTasks} tasks completed
-                  </div>
-                </>
-              )
-            })()}
-          </div>
+                    <div className="text-center text-sm text-slate-600 dark:text-slate-400">
+                      {completedTasks} / {totalTasks} tasks completed
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          )}
 
           {/* Study Modes */}
           <div className="card">
@@ -448,10 +482,10 @@ const StudyPlanDetail = () => {
                                 <div
                                   key={task.id}
                                   className={`p-3 rounded-lg border transition-all ${isCompleted
-                                      ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                                      : isUnlocked
-                                        ? 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700'
-                                        : 'bg-gray-100 dark:bg-slate-900 border-gray-200 dark:border-slate-800 opacity-60'
+                                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                                    : isUnlocked
+                                      ? 'bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700'
+                                      : 'bg-gray-100 dark:bg-slate-900 border-gray-200 dark:border-slate-800 opacity-60'
                                     }`}
                                 >
                                   <div className="flex items-center justify-between">

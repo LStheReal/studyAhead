@@ -74,6 +74,7 @@ const Plans = () => {
             const daysRemaining = plan.exam_date
               ? differenceInDays(new Date(plan.exam_date), new Date())
               : null
+            const isSimplePlan = plan.plan_mode === 'simple'
 
             return (
               <div
@@ -84,11 +85,18 @@ const Plans = () => {
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
                     <h3 className="font-semibold text-lg mb-1">{plan.name}</h3>
-                    {plan.category && (
-                      <span className={`badge ${getCategoryBadge(plan.category)}`}>
-                        {plan.category.replace('_', ' ')}
-                      </span>
-                    )}
+                    <div className="flex gap-2 flex-wrap">
+                      {plan.category && (
+                        <span className={`badge ${getCategoryBadge(plan.category)}`}>
+                          {plan.category.replace('_', ' ')}
+                        </span>
+                      )}
+                      {isSimplePlan && (
+                        <span className="badge bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                          Simple
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <ArrowRight size={20} className="text-slate-400" />
                 </div>
@@ -103,28 +111,39 @@ const Plans = () => {
                       </span>
                     </div>
                   )}
-                  <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                    <BookOpen size={16} />
-                    <span>Next task available</span>
-                  </div>
+                  {!isSimplePlan && (
+                    <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                      <BookOpen size={16} />
+                      <span>Next task available</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="mb-2">
-                  <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="text-slate-600 dark:text-slate-400">Progress</span>
-                    <span className="font-medium">{Math.round(plan.progress_percentage)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-2">
-                    <div
-                      className="bg-blue-500 h-2 rounded-full transition-all"
-                      style={{ width: `${plan.progress_percentage}%` }}
-                    />
-                  </div>
-                </div>
+                {/* Progress bar - only for full plans */}
+                {!isSimplePlan ? (
+                  <>
+                    <div className="mb-2">
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="text-slate-600 dark:text-slate-400">Progress</span>
+                        <span className="font-medium">{Math.round(plan.progress_percentage)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-2">
+                        <div
+                          className="bg-blue-500 h-2 rounded-full transition-all"
+                          style={{ width: `${plan.progress_percentage}%` }}
+                        />
+                      </div>
+                    </div>
 
-                <div className="text-xs text-slate-500 dark:text-slate-500 mt-2">
-                  {plan.tasks_completed} / {plan.tasks_total} tasks completed
-                </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-500 mt-2">
+                      {plan.tasks_completed} / {plan.tasks_total} tasks completed
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-slate-500 dark:text-slate-500 mt-2">
+                    Simple flashcard set - no schedule
+                  </div>
+                )}
               </div>
             )
           })}

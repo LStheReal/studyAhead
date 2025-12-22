@@ -105,50 +105,6 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Continue Learning Card */}
-      {stats.active_study_plan && (
-        <div className="card border-l-4 border-blue-500">
-          <div className="flex items-start justify-between mb-2">
-            <h3 className="font-semibold text-lg">Continue Learning</h3>
-            {getStatusBadge(stats.active_study_plan)}
-          </div>
-          <p className="text-slate-600 dark:text-slate-400 mb-3">
-            {stats.active_study_plan.name}
-          </p>
-          <div className="flex items-center justify-between text-sm mb-4">
-            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-              <CheckCircle2 size={16} />
-              <span>{stats.active_study_plan.tasks_completed} / {stats.active_study_plan.tasks_total} tasks</span>
-            </div>
-            {stats.active_study_plan.exam_date && (
-              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-                <Calendar size={16} />
-                <span>{differenceInDays(new Date(stats.active_study_plan.exam_date), new Date())} days left</span>
-              </div>
-            )}
-          </div>
-          {stats.today_tasks.length > 0 && (() => {
-            const nextTask = stats.today_tasks[0]
-            const isPreAssessment = nextTask.mode === 'pre_assessment' || nextTask.title === 'Pre-Assessment Test'
-
-            return (
-              <button
-                onClick={() => {
-                  if (isPreAssessment) {
-                    navigate(`/plans/${stats.active_study_plan.id}/pre-assessment`)
-                  } else {
-                    navigate(`/study/${stats.active_study_plan.id}/${nextTask.mode}?taskId=${nextTask.id}`)
-                  }
-                }}
-                className="w-full btn-primary"
-              >
-                Start Next Task
-              </button>
-            )
-          })()}
-        </div>
-      )}
-
       {/* Today's Schedule */}
       <div className="card">
         <h3 className="font-semibold text-lg mb-4">Today's Schedule</h3>

@@ -39,10 +39,13 @@ Provide a JSON response with the following structure:
     "recommended_study_approach": "Detailed approach description",
     "checklist_items": ["item1", "item2", ...],
     "content_structure": {{"hierarchical": "structure"}},
-    "difficulty_assessment": "easy" | "medium" | "hard"
+    "difficulty_assessment": "easy" | "medium" | "hard",
+    "detected_languages": ["Language1", "Language2"]
 }}
 
-Be thorough and accurate. For vocabulary materials, identify language pairs if present."""
+IMPORTANT: If the material contains vocabulary pairs (word translations between two languages), set category to "vocabulary" and include "detected_languages" with both languages identified (e.g., ["English", "Spanish"]). For non-vocabulary content, detected_languages can be empty or contain the single language of the content.
+
+Be thorough and accurate."""
 
         try:
             if not self.client:

@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
-import { Upload, X, FileText, Image as ImageIcon, Type, Camera } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { Upload, X, FileText, Image as ImageIcon, Type, Camera, AlertTriangle } from 'lucide-react'
 
 const CreateStudyPlan = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [formData, setFormData] = useState({
     name: '',
     exam_date: '',
@@ -19,6 +21,14 @@ const CreateStudyPlan = () => {
   const pollCountRef = useRef(0)
   const maxPollCount = 150
   const isMounted = useRef(true)
+
+  // Modal states for edge cases
+  const [showNoDateModal, setShowNoDateModal] = useState(false)
+  const [showNotVocabModal, setShowNotVocabModal] = useState(false)
+  const [showLanguageModal, setShowLanguageModal] = useState(false)
+  const [detectedLanguages, setDetectedLanguages] = useState([])
+  const [selectedDirection, setSelectedDirection] = useState(null)
+  const [pendingPlanId, setPendingPlanId] = useState(null)
 
   useEffect(() => {
     return () => {
@@ -54,7 +64,8 @@ const CreateStudyPlan = () => {
 
   const [useMockData, setUseMockData] = useState(false)
 
-  const handleSubmit = async () => {
+  // Check if we should show the no date modal first
+  const handleSubmitClick = () => {
     if (!formData.name) {
       alert('Please enter a study plan name')
       return
@@ -65,9 +76,19 @@ const CreateStudyPlan = () => {
       return
     }
 
+    // If no exam date, show confirmation modal
+    if (!formData.exam_date && !useMockData) {
+      setShowNoDateModal(true)
+      return
+    }
+
+    // Proceed with submission
+    handleSubmit('full')
+  }
+
+  const handleSubmit = async (planMode = 'full') => {
+    setShowNoDateModal(false)
     setLoading(true)
-
-
 
     // ... REAL FLOW ...
     setProcessingStatus({ status: 'creating', message: 'Creating study plan...' })
@@ -81,7 +102,8 @@ const CreateStudyPlan = () => {
         exam_date: formData.exam_date || null,
         question_language: formData.question_language || 'English',
         answer_language: formData.answer_language || 'English',
-        learning_objectives: 'Generated from user materials'
+        learning_objectives: 'Generated from user materials',
+        plan_mode: planMode
       }
 
       const planResponse = await api.post('/study-plans/', planPayload)
@@ -144,7 +166,7 @@ const CreateStudyPlan = () => {
     }
 
     try {
-      const response = await api.get(`/materials/${currentPlanId}/status`)
+      const response = await api.get(`/study-plans/${currentPlanId}/status`)
       const status = response.data
 
       if (!isMounted.current) return
@@ -153,11 +175,58 @@ const CreateStudyPlan = () => {
 
       setProcessingStatus({
         status: normalizedStatus,
-        message: getStatusMessage(normalizedStatus, status.flashcard_count),
+        message: getStatusMessage(normalizedStatus, status.flashcard_count, status.error_type),
         flashcardCount: status.flashcard_count,
       })
 
+      // Handle error status (non-vocabulary content)
+      if (normalizedStatus === 'error' && status.error_type === 'not_vocabulary') {
+        setLoading(false)
+        setPendingPlanId(currentPlanId)
+        setShowNotVocabModal(true)
+        return
+      }
+
       if (normalizedStatus === 'awaiting_approval' || normalizedStatus === 'active') {
+        // Check if we need to show language direction modal
+        const detectedLangs = status.detected_languages || []
+        const userSchoolLang = user?.school_language || 'English'
+        const userProvidedLangs = formData.question_language && formData.answer_language
+
+        // Only show language modal if:
+        // 1. Both detected languages exist
+        // 2. User didn't specify languages
+        // 3. Neither detected language matches user's school language
+        if (
+          detectedLangs.length === 2 &&
+          !userProvidedLangs &&
+          !detectedLangs.includes(userSchoolLang)
+        ) {
+          setLoading(false)
+          setDetectedLanguages(detectedLangs)
+          setPendingPlanId(currentPlanId)
+          setShowLanguageModal(true)
+          return
+        }
+
+        // Auto-set language direction if one matches school language
+        if (detectedLangs.length === 2 && !userProvidedLangs) {
+          const schoolLangIndex = detectedLangs.indexOf(userSchoolLang)
+          if (schoolLangIndex !== -1) {
+            // School language is the question, other is answer
+            const questionLang = userSchoolLang
+            const answerLang = detectedLangs[schoolLangIndex === 0 ? 1 : 0]
+            try {
+              await api.put(`/study-plans/${currentPlanId}`, {
+                question_language: questionLang,
+                answer_language: answerLang
+              })
+            } catch (err) {
+              console.warn('Failed to update language direction:', err)
+            }
+          }
+        }
+
         setLoading(false)
         setTimeout(() => navigate(`/plans/${currentPlanId}`), 1500)
       } else if (normalizedStatus === 'generating') {
@@ -183,7 +252,10 @@ const CreateStudyPlan = () => {
     }
   }
 
-  const getStatusMessage = (status, flashcardCount) => {
+  const getStatusMessage = (status, flashcardCount, errorType) => {
+    if (status === 'error' && errorType === 'not_vocabulary') {
+      return 'Content type not supported...'
+    }
     const messages = {
       creating: 'Creating study plan...',
       uploading: 'Uploading materials...',
@@ -191,8 +263,43 @@ const CreateStudyPlan = () => {
         ? `Generating flashcards... (${flashcardCount} created)`
         : 'Analyzing your materials...',
       awaiting_approval: `Success! Generated ${flashcardCount} flashcards. Redirecting...`,
+      active: `Success! Generated ${flashcardCount} flashcards. Redirecting...`,
     }
     return messages[status] || 'Processing...'
+  }
+
+  // Handle non-vocabulary error - delete plan and go to dashboard
+  const handleNotVocabClose = async () => {
+    setShowNotVocabModal(false)
+    if (pendingPlanId) {
+      try {
+        await api.delete(`/study-plans/${pendingPlanId}`)
+      } catch (err) {
+        console.warn('Failed to delete plan:', err)
+      }
+    }
+    navigate('/plans')
+  }
+
+  // Handle language direction selection
+  const handleLanguageSelect = async () => {
+    if (!selectedDirection || !pendingPlanId) return
+
+    const [questionLang, answerLang] = selectedDirection === 'forward'
+      ? [detectedLanguages[0], detectedLanguages[1]]
+      : [detectedLanguages[1], detectedLanguages[0]]
+
+    try {
+      await api.put(`/study-plans/${pendingPlanId}`, {
+        question_language: questionLang,
+        answer_language: answerLang
+      })
+    } catch (err) {
+      console.warn('Failed to update language direction:', err)
+    }
+
+    setShowLanguageModal(false)
+    navigate(`/plans/${pendingPlanId}`)
   }
 
   return (
@@ -372,7 +479,7 @@ const CreateStudyPlan = () => {
           </div>
 
           <button
-            onClick={handleSubmit}
+            onClick={handleSubmitClick}
             disabled={loading || !formData.name}
             className="w-full btn-primary py-3 disabled:opacity-50"
           >
@@ -380,8 +487,123 @@ const CreateStudyPlan = () => {
           </button>
         </div>
       )}
+
+      {/* No Exam Date Confirmation Modal */}
+      {showNoDateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
+                <AlertTriangle className="text-amber-600 dark:text-amber-400" size={24} />
+              </div>
+              <h3 className="text-xl font-bold">No Exam Date Set</h3>
+            </div>
+            <p className="text-slate-600 dark:text-slate-400 mb-6">
+              Without an exam date, we cannot create a smart study schedule. Your plan will be a simple flashcard set without progress tracking or scheduled tasks.
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-500 mb-6">
+              Do you want to continue anyway?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowNoDateModal(false)}
+                className="flex-1 btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleSubmit('simple')}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Create Simple Plan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Non-Vocabulary Error Modal */}
+      {showNotVocabModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
+                <AlertTriangle className="text-red-600 dark:text-red-400" size={24} />
+              </div>
+              <h3 className="text-xl font-bold">Content Not Supported</h3>
+            </div>
+            <p className="text-slate-600 dark:text-slate-400 mb-6">
+              Sorry, only vocabulary content (word lists with translations) is currently supported. The content you uploaded appears to be a different type of study material.
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-500 mb-6">
+              Your plan will be deleted. Please try again with vocabulary content.
+            </p>
+            <button
+              onClick={handleNotVocabClose}
+              className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              OK, Go to Dashboard
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Language Direction Modal */}
+      {showLanguageModal && detectedLanguages.length === 2 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold mb-4">Choose Language Direction</h3>
+            <p className="text-slate-600 dark:text-slate-400 mb-6">
+              We detected vocabulary in <span className="font-semibold">{detectedLanguages[0]}</span> and <span className="font-semibold">{detectedLanguages[1]}</span>.
+              Which language should be the question (what you see) vs. the answer (what you type)?
+            </p>
+            <div className="space-y-3 mb-6">
+              <label className={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all ${selectedDirection === 'forward'
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                  : 'border-gray-200 dark:border-slate-700 hover:border-blue-200'
+                }`}>
+                <input
+                  type="radio"
+                  name="direction"
+                  value="forward"
+                  checked={selectedDirection === 'forward'}
+                  onChange={() => setSelectedDirection('forward')}
+                  className="mr-3"
+                />
+                <span className="font-medium">{detectedLanguages[0]}</span>
+                <span className="mx-2 text-slate-400">→</span>
+                <span className="font-medium">{detectedLanguages[1]}</span>
+              </label>
+              <label className={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all ${selectedDirection === 'reverse'
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                  : 'border-gray-200 dark:border-slate-700 hover:border-blue-200'
+                }`}>
+                <input
+                  type="radio"
+                  name="direction"
+                  value="reverse"
+                  checked={selectedDirection === 'reverse'}
+                  onChange={() => setSelectedDirection('reverse')}
+                  className="mr-3"
+                />
+                <span className="font-medium">{detectedLanguages[1]}</span>
+                <span className="mx-2 text-slate-400">→</span>
+                <span className="font-medium">{detectedLanguages[0]}</span>
+              </label>
+            </div>
+            <button
+              onClick={handleLanguageSelect}
+              disabled={!selectedDirection}
+              className="w-full btn-primary py-3 disabled:opacity-50"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 export default CreateStudyPlan
+

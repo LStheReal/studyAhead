@@ -15,6 +15,7 @@ class MockAIService:
             "topics": ["Fruit", "Education", "Technology"],
             "difficulty": "Beginner",
             "estimated_study_time_minutes": 15,
+            "detected_languages": ["English", "German"],
             "flashcards": [
                 {"front": "Apple", "back": "Apfel", "difficulty": "easy"},
                 {"front": "Book", "back": "Buch", "difficulty": "easy"}

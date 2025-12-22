@@ -27,6 +27,12 @@ async def create_study_plan(
             except ValueError:
                 category_enum = MaterialCategory.VOCABULARY
         
+        # Determine plan mode: simple if no exam date, full otherwise
+        plan_mode = "simple" if not plan_data.exam_date else "full"
+        # Allow explicit override from frontend
+        if plan_data.plan_mode == "simple":
+            plan_mode = "simple"
+        
         db_plan = StudyPlan(
             user_id=current_user.id,
             name=plan_data.name,
@@ -36,7 +42,8 @@ async def create_study_plan(
             learning_objectives=plan_data.learning_objectives,
             question_language=plan_data.question_language,
             answer_language=plan_data.answer_language,
-            status=StudyPlanStatus.GENERATING
+            status=StudyPlanStatus.GENERATING,
+            plan_mode=plan_mode
         )
         db.add(db_plan)
         db.commit()
@@ -266,8 +273,12 @@ async def get_study_plan_status(
     
     return {
         "status": plan.status.value,
+        "plan_mode": plan.plan_mode.value if plan.plan_mode else "full",
+        "error_type": plan.error_type,
+        "detected_languages": plan.detected_languages,
         "progress_percentage": plan.progress_percentage,
         "tasks_total": plan.tasks_total,
         "tasks_completed": plan.tasks_completed,
         "flashcard_count": len(plan.flashcards)
     }
+

@@ -60,6 +60,7 @@ class StudyPlanCreate(BaseModel):
     question_language: Optional[str] = None
     answer_language: Optional[str] = None
     category: Optional[str] = "vocabulary"  # Default to vocabulary
+    plan_mode: Optional[str] = "full"  # "full" or "simple"
 
 class StudyPlanResponse(BaseModel):
     id: int
@@ -71,6 +72,9 @@ class StudyPlanResponse(BaseModel):
     question_language: Optional[str]
     answer_language: Optional[str]
     status: StudyPlanStatus
+    plan_mode: Optional[str] = "full"  # "full" or "simple"
+    error_type: Optional[str] = None
+    detected_languages: Optional[List[str]] = None
     progress_percentage: float
     tasks_total: int
     tasks_completed: int

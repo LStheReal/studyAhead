@@ -25,6 +25,11 @@ class StudyPlanStatus(str, enum.Enum):
     COMPLETED = "completed"
     GENERATING = "generating"
     AWAITING_APPROVAL = "awaiting_approval"
+    ERROR = "error"  # For content type errors
+
+class StudyPlanMode(str, enum.Enum):
+    FULL = "full"        # Has exam date, schedule, pre-assessment
+    SIMPLE = "simple"    # No exam date, no schedule, just vocabulary cards
 
 class TaskType(str, enum.Enum):
     FLASHCARD_REVIEW = "flashcard_review"
@@ -92,6 +97,9 @@ class StudyPlan(Base):
     answer_language = Column(String, nullable=True)
     
     status = Column(SQLEnum(StudyPlanStatus), default=StudyPlanStatus.GENERATING)
+    plan_mode = Column(String, default="full", nullable=True)  # "full" or "simple"
+    error_type = Column(String, nullable=True)  # "not_vocabulary" or null
+    detected_languages = Column(JSON, nullable=True)  # ["English", "Spanish"] for vocabulary
     progress_percentage_static = Column("progress_percentage", Float, default=0.0)
     current_step = Column(String, nullable=True)
     

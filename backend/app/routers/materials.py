@@ -96,18 +96,21 @@ async def process_materials_background(
         
         # Check category
         category = analysis.get("category", "other")
+        detected_languages = analysis.get("detected_languages", [])
+        
         if category != "vocabulary":
             print(f"  ERROR: Category '{category}' not supported. Only vocabulary is supported.")
             with SessionLocal() as db:
                 plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
                 if plan:
-                    plan.status = StudyPlanStatus.AWAITING_APPROVAL
-                    # We could store the error in a field if we had one, or rely on the category check in status endpoint
-                    # But we need to save the summary to show the error
+                    plan.status = StudyPlanStatus.ERROR
+                    plan.error_type = "not_vocabulary"
                     db.commit()
             raise ValueError(f"Category '{category}' not supported")
         
+        # Store detected languages for vocabulary
         print(f"  Category: {category}")
+        print(f"  Detected languages: {detected_languages}")
         print(f"  Flashcard count: {len(analysis.get('flashcards', []))}")
         
         # 4. Save Material Summary (Quick DB op)
@@ -138,10 +141,12 @@ async def process_materials_background(
                 summary_id = summary.id
                 print(f"  Created material summary with ID: {summary_id}")
             
-            # Update plan category
+            # Update plan category and detected languages
             plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
             if plan:
                 plan.category = MaterialCategory(category)
+                if detected_languages:
+                    plan.detected_languages = detected_languages
                 db.commit()
         
         # 5. Check if flashcards already exist (for idempotency)
@@ -253,38 +258,43 @@ async def process_materials_background(
                 plan = db.query(StudyPlan).filter(StudyPlan.id == study_plan_id).first()
                 if plan:
                     if success and flashcard_count > 0:
-                        # Auto-activate and create pre-assessment task
+                        # Auto-activate
                         plan.status = StudyPlanStatus.ACTIVE
                         
-                        # Create pre-assessment test task for day 1
-                        from datetime import timezone, datetime
-                        today = datetime.now(timezone.utc).date()
-                        
-                        # Check if task already exists
-                        existing_task = db.query(Task).filter(
-                            Task.study_plan_id == study_plan_id,
-                            Task.title == "Pre-Assessment Test"
-                        ).first()
-                        
-                        if not existing_task:
-                            pre_assessment_task = Task(
-                                study_plan_id=study_plan_id,
-                                title="Pre-Assessment Test",
-                                description="Take this test to assess your current level with the vocabulary. This will help us create a personalized study schedule.",
-                                type=TaskType.COMPREHENSIVE_TEST,
-                                mode=StudyMode.SHORT_TEST,
-                                estimated_minutes=30,
-                                day_number=1,
-                                rationale="Pre-assessment to determine your current vocabulary level and adapt the study plan accordingly.",
-                                scheduled_date=today,
-                                order=0,
-                                completion_status=False
-                            )
-                            db.add(pre_assessment_task)
-                            plan.tasks_total_static = 1
-                            plan.tasks_completed_static = 0
-                        
-                        print(f"  Status updated to ACTIVE and pre-assessment task created")
+                        # Only create pre-assessment for FULL plans (with exam date)
+                        if plan.plan_mode == "full" or plan.plan_mode is None:
+                            # Create pre-assessment test task for day 1
+                            from datetime import timezone, datetime
+                            today = datetime.now(timezone.utc).date()
+                            
+                            # Check if task already exists
+                            existing_task = db.query(Task).filter(
+                                Task.study_plan_id == study_plan_id,
+                                Task.title == "Pre-Assessment Test"
+                            ).first()
+                            
+                            if not existing_task:
+                                pre_assessment_task = Task(
+                                    study_plan_id=study_plan_id,
+                                    title="Pre-Assessment Test",
+                                    description="Take this test to assess your current level with the vocabulary. This will help us create a personalized study schedule.",
+                                    type=TaskType.COMPREHENSIVE_TEST,
+                                    mode=StudyMode.SHORT_TEST,
+                                    estimated_minutes=30,
+                                    day_number=1,
+                                    rationale="Pre-assessment to determine your current vocabulary level and adapt the study plan accordingly.",
+                                    scheduled_date=today,
+                                    order=0,
+                                    completion_status=False
+                                )
+                                db.add(pre_assessment_task)
+                                plan.tasks_total_static = 1
+                                plan.tasks_completed_static = 0
+                            
+                            print(f"  Status updated to ACTIVE and pre-assessment task created")
+                        else:
+                            # Simple plan - no pre-assessment or schedule
+                            print(f"  Status updated to ACTIVE (simple plan - no pre-assessment created)")
                     else:
                         # Fallback to awaiting approval if error (so user can retry or see summary)
                         plan.status = StudyPlanStatus.AWAITING_APPROVAL
